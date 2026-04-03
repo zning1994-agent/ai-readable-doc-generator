@@ -1,64 +1,115 @@
-"""JSON transformer for structured document output."""
+"""JSON transformer for structured JSON output."""
 
 import json
 from typing import Any
 
+from ai_readable_doc_generator.models.document import Document
+from ai_readable_doc_generator.models.schema import OutputSchema
 from ai_readable_doc_generator.transformer.base_transformer import BaseTransformer
 
 
-class JSONTransformer(BaseTransformer):
-    """Transformer that converts documents to structured JSON format."""
+class JsonTransformer(BaseTransformer):
+    """Transforms documents to JSON format with configurable schema.
 
-    def __init__(self, options: dict[str, Any] | None = None) -> None:
+    Supports both compact and pretty-printed JSON output with
+    semantic tagging integration.
+    """
+
+    def __init__(
+        self,
+        schema: OutputSchema | None = None,
+        pretty: bool = True,
+        indent: int = 2,
+    ) -> None:
         """Initialize JSON transformer.
-        
-        Args:
-            options: Optional configuration with keys:
-                - pretty: Enable pretty printing (default: True)
-                - indent: Indentation level for pretty printing (default: 2)
-                - ensure_ascii: Escape non-ASCII characters (default: False)
-        """
-        super().__init__(options)
-        self.pretty = self.options.get("pretty", True)
-        self.indent = self.options.get("indent", 2)
-        self.ensure_ascii = self.options.get("ensure_ascii", False)
 
-    def transform(self, document: Any) -> str:
-        """Transform a document to JSON format.
-        
         Args:
-            document: Document object with to_dict() method or dict.
-            
+            schema: Optional output schema configuration.
+            pretty: Whether to pretty-print JSON output.
+            indent: Indentation level for pretty printing.
+        """
+        super().__init__(schema)
+        self.pretty = pretty
+        self.indent = indent
+
+    def transform(self, document: Document) -> str:
+        """Transform document to JSON string.
+
+        Args:
+            document: The document to transform.
+
         Returns:
             JSON string representation of the document.
         """
-        if hasattr(document, "to_dict"):
-            data = document.to_dict()
-        elif isinstance(document, dict):
-            data = document
-        else:
-            data = {"content": str(document)}
+        data = self.transform_to_dict(document)
 
         if self.pretty:
-            return json.dumps(
-                data,
-                indent=self.indent,
-                ensure_ascii=self.ensure_ascii,
-                default=str,
-            )
-        return json.dumps(data, ensure_ascii=self.ensure_ascii, default=str)
+            return json.dumps(data, indent=self.indent, ensure_ascii=False)
+        return json.dumps(data, ensure_ascii=False)
 
-    def validate(self, document: Any) -> bool:
-        """Validate that a document can be transformed to JSON.
-        
+    def transform_to_dict(self, document: Document) -> dict[str, Any]:
+        """Transform document to dictionary for JSON conversion.
+
         Args:
-            document: Document to validate.
-            
+            document: The document to transform.
+
         Returns:
-            True if document is valid, False otherwise.
+            Dictionary representation of the document.
         """
-        if document is None:
-            return False
-        if hasattr(document, "to_dict") or isinstance(document, dict):
-            return True
-        return True  # Accept any convertible object
+        result: dict[str, Any] = {
+            "title": document.title,
+            "source_format": document.source_format,
+        }
+
+        # Include metadata if configured
+        if self.schema.include_metadata:
+            result["metadata"] = document.metadata
+
+        # Include table of contents if configured
+        if self.schema.include_toc:
+            result["table_of_contents"] = document.get_table_of_contents()
+
+        # Include semantic tags if configured
+        if self.schema.semantic_tags:
+            result["sections"] = [
+                self._section_to_dict(section) for section in document.sections
+            ]
+        else:
+            # Simple section list without semantic tags
+            result["sections"] = [
+                {"content": section.content, "type": section.section_type.value}
+                for section in document.sections
+            ]
+
+        # Apply custom schema fields
+        if self.schema.fields:
+            result = self._apply_schema_fields(result, document)
+
+        return result
+
+    def _section_to_dict(self, section) -> dict[str, Any]:
+        """Convert section to dictionary with semantic tags.
+
+        Args:
+            section: Section to convert.
+
+        Returns:
+            Dictionary representation of section.
+        """
+        result: dict[str, Any] = {
+            "content": section.content,
+            "type": section.section_type.value,
+            "level": section.level,
+        }
+
+        # Include semantic metadata if available
+        if "semantic" in section.metadata:
+            result["semantic"] = section.metadata["semantic"]
+
+        # Include children if any
+        if section.children:
+            result["children"] = [
+                self._section_to_dict(child) for child in section.children
+            ]
+
+        return result
