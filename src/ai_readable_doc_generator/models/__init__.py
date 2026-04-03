@@ -1,18 +1,31 @@
-"""Models package for ai-readable-doc-generator."""
+"""Models package for AI-readable document structures."""
 
-from .document import Document, DocumentMetadata
-from .schema import MCPSchema, MCPSchemaType, OutputSchema, SchemaConfig
-from .section import ContentClassification, ImportanceLevel, Section, SectionType
+from ai_readable_doc_generator.models.document import (
+    Document,
+    DocumentMetadata,
+    DocumentRelationship,
+    DocumentSummary,
+)
+from ai_readable_doc_generator.models.schema import (
+    OutputSchema,
+    SchemaField,
+    SchemaVersion,
+)
+from ai_readable_doc_generator.models.section import (
+    ContentImportance,
+    Section,
+    SectionType,
+)
 
 __all__ = [
-    "ContentClassification",
+    "ContentImportance",
     "Document",
     "DocumentMetadata",
-    "ImportanceLevel",
-    "MCPSchema",
-    "MCPSchemaType",
+    "DocumentRelationship",
+    "DocumentSummary",
     "OutputSchema",
-    "SchemaConfig",
+    "SchemaField",
+    "SchemaVersion",
     "Section",
     "SectionType",
 ]
