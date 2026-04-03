@@ -1,410 +1,292 @@
 """
-Pytest configuration and shared fixtures for ai-readable-doc-generator tests.
+Pytest configuration and shared fixtures for MCP server tests.
 """
 
 import json
 import tempfile
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Generator
 
 import pytest
 
 
 # =============================================================================
-# Sample Data Fixtures
+# Session-scoped fixtures
 # =============================================================================
 
 
-@pytest.fixture
+@pytest.fixture(scope="session")
 def sample_markdown_content() -> str:
-    """Provide sample markdown content for testing."""
-    return """# Sample Document
+    """Session-scoped sample markdown content for testing."""
+    return """# Introduction
 
-## Introduction
+This is the introduction section.
 
-This is an introduction to the document.
+## Getting Started
 
-## Main Content
+Follow these steps to get started.
 
-Here is the main content with:
-- List item 1
-- List item 2
-- List item 3
+### Prerequisites
 
-## Code Example
+- Python 3.11+
+- pip
+- git
 
-```python
-def hello():
-    print("Hello, World!")
-```
-
-## Conclusion
-
-This is the conclusion.
-"""
-
-
-@pytest.fixture
-def complex_markdown_content() -> str:
-    """Provide complex markdown with various elements."""
-    return """---
-title: Complex Document
-author: Test Author
-date: 2024-01-01
----
-
-# API Documentation
-
-## Overview
-
-This is the API overview.
-
-## Endpoints
-
-### GET /users
-
-Returns list of users.
-
-**Parameters:**
-| Name | Type | Required | Description |
-|------|------|----------|-------------|
-| id | int | No | User ID |
-
-### POST /users
-
-Creates a new user.
-
-## Examples
-
-### cURL
+### Installation
 
 ```bash
-curl -X GET https://api.example.com/users
+pip install ai-readable-doc-generator
+git clone https://github.com/example/repo.git
 ```
 
-### Python
+## Configuration
 
-```python
-import requests
+Configure your environment variables in `.env`.
 
-response = requests.get("https://api.example.com/users")
-print(response.json())
-```
+### Environment Variables
 
-> **Note:** This is an important note.
+| Variable | Description | Default |
+|----------|-------------|---------|
+| DEBUG | Enable debug mode | false |
+| LOG_LEVEL | Logging level | info |
 
-## Changelog
+> **Note**: Make sure to restart the server after configuration changes.
 
-- Version 1.0: Initial release
-- Version 1.1: Added POST endpoint
-"""
+## API Reference
 
+### Endpoints
 
-@pytest.fixture
-def minimal_markdown() -> str:
-    """Provide minimal markdown content."""
-    return "# Title\n\nContent."
+#### GET /api/documents
 
+Retrieve all documents.
 
-@pytest.fixture
-def markdown_with_code_blocks() -> str:
-    """Markdown with multiple code blocks."""
-    return """# Code Blocks
+#### POST /api/documents
 
-## Python
-```python
-def foo():
-    return 42
-```
+Create a new document.
 
-## JavaScript
-```javascript
-function foo() {
-    return 42;
+```json
+{
+  "title": "My Document",
+  "content": "Document content here"
 }
 ```
 
-## Inline Code
+## Troubleshooting
 
-Use `print()` to output.
+### Common Issues
+
+1. **Installation fails**: Check Python version
+2. **Import errors**: Verify dependencies installed
+3. **Path errors**: Use absolute paths
+
+<!-- This is a comment that should be ignored -->
 """
 
 
-@pytest.fixture
-def markdown_with_tables() -> str:
-    """Markdown with tables."""
-    return """# Tables
-
-| Name | Value |
-|------|-------|
-| A    | 1     |
-| B    | 2     |
-
-| Col1 | Col2 | Col3 |
-|:-----|:----:|-----:|
-| L    | C    | R    |
-"""
-
-
-@pytest.fixture
-def markdown_with_lists() -> str:
-    """Markdown with various list types."""
-    return """# Lists
-
-## Unordered
-- Item 1
-- Item 2
-  - Nested 1
-  - Nested 2
-- Item 3
-
-## Ordered
-1. First
-2. Second
-3. Third
-
-## Task List
-- [x] Done
-- [ ] Not done
-"""
-
-
-@pytest.fixture
-def markdown_with_blockquotes() -> str:
-    """Markdown with blockquotes."""
-    return """# Blockquotes
-
-> Simple quote
-
-> Multi-line quote
-> with continuation
-
-> **Note:** Important information here.
-
-> List inside quote:
-> - Item 1
-> - Item 2
-"""
-
-
-@pytest.fixture
-def unicode_markdown() -> str:
-    """Markdown with Unicode characters."""
-    return """# 多语言支持
-
-## 日本語
-
-これはテストです。
-
-## 中文
-
-这是一个测试。
-
-## 한국어
-
-이것은 테스트입니다.
-
-## Emoji
-
-🚀 🚢 📦
-"""
-
-
-# =============================================================================
-# File Fixtures
-# =============================================================================
-
-
-@pytest.fixture
-def sample_document_file(tmp_path: Path, sample_markdown_content: str) -> Path:
-    """Create a temporary markdown file with sample content."""
-    file_path = tmp_path / "sample.md"
-    file_path.write_text(sample_markdown_content)
-    return file_path
-
-
-@pytest.fixture
-def complex_document_file(tmp_path: Path, complex_markdown_content: str) -> Path:
-    """Create a temporary markdown file with complex content."""
-    file_path = tmp_path / "complex.md"
-    file_path.write_text(complex_markdown_content)
-    return file_path
-
-
-@pytest.fixture
-def invalid_format_file(tmp_path: Path) -> Path:
-    """Create a file with unsupported format."""
-    file_path = tmp_path / "test.invalid"
-    file_path.write_text("invalid content")
-    return file_path
-
-
-@pytest.fixture
-def empty_markdown_file(tmp_path: Path) -> Path:
-    """Create an empty markdown file."""
-    file_path = tmp_path / "empty.md"
-    file_path.write_text("")
-    return file_path
-
-
-@pytest.fixture
-def markdown_file_uppercase(tmp_path: Path, sample_markdown_content: str) -> Path:
-    """Create a markdown file with uppercase extension."""
-    file_path = tmp_path / "test.MD"
-    file_path.write_text(sample_markdown_content)
-    return file_path
-
-
-@pytest.fixture
-def json_sample_file(tmp_path: Path) -> Path:
-    """Create a sample JSON file."""
-    data = {"key": "value", "nested": {"foo": "bar"}}
-    file_path = tmp_path / "sample.json"
-    file_path.write_text(json.dumps(data))
-    return file_path
-
-
-# =============================================================================
-# Configuration Fixtures
-# =============================================================================
-
-
-@pytest.fixture
-def default_config() -> Dict[str, Any]:
-    """Default configuration for testing."""
+@pytest.fixture(scope="session")
+def sample_json_output() -> dict[str, Any]:
+    """Session-scoped sample JSON output for testing."""
     return {
-        "include_metadata": True,
-        "include_semantic_tags": False,
-        "output_format": "json",
-    }
-
-
-@pytest.fixture
-def mcp_config() -> Dict[str, Any]:
-    """Configuration for MCP output."""
-    return {
-        "include_metadata": True,
-        "include_semantic_tags": True,
-        "output_format": "mcp",
-        "schema_version": "1.0",
-    }
-
-
-@pytest.fixture
-def custom_config() -> Dict[str, Any]:
-    """Custom configuration for testing."""
-    return {
-        "include_metadata": True,
-        "include_semantic_tags": True,
-        "output_format": "json",
-        "custom_option": "custom_value",
-    }
-
-
-# =============================================================================
-# Document Structure Fixtures
-# =============================================================================
-
-
-@pytest.fixture
-def expected_json_structure() -> Dict[str, Any]:
-    """Expected JSON structure for valid output."""
-    return {
-        "title": str,
-        "content": str,
-        "sections": list,
-        "metadata": dict,
-    }
-
-
-@pytest.fixture
-def expected_mcp_structure() -> Dict[str, Any]:
-    """Expected MCP structure for valid output."""
-    return {
-        "format": "mcp",
-        "version": str,
-        "document": dict,
-        "semantic_tags": list,
-    }
-
-
-# =============================================================================
-# Temporary Path Fixtures
-# =============================================================================
-
-
-@pytest.fixture
-def temp_output_dir(tmp_path: Path) -> Path:
-    """Create a temporary output directory."""
-    output_dir = tmp_path / "output"
-    output_dir.mkdir()
-    return output_dir
-
-
-@pytest.fixture
-def nested_input_dir(tmp_path: Path) -> Path:
-    """Create a nested directory structure for input files."""
-    nested = tmp_path / "a" / "b" / "c"
-    nested.mkdir(parents=True)
-    return nested
-
-
-# =============================================================================
-# Mock Fixtures
-# =============================================================================
-
-
-@pytest.fixture
-def mock_parser_result() -> Dict[str, Any]:
-    """Mock parser result for unit testing transformers."""
-    return {
-        "title": "Test Document",
+        "title": "Sample Document",
+        "format_version": "1.0",
+        "metadata": {
+            "source_path": "docs/sample.md",
+            "created_at": "2026-04-03T00:00:00Z",
+            "author": "Test Author",
+            "version": "1.0.0",
+        },
         "sections": [
             {
+                "title": "Introduction",
                 "level": 1,
-                "heading": "Introduction",
-                "content": "This is the introduction.",
-                "children": [],
+                "content_type": "narrative",
+                "importance": "high",
+                "semantic_tags": ["introduction", "overview"],
             },
             {
-                "level": 1,
-                "heading": "Main Content",
-                "content": "Main content here.",
-                "children": [
-                    {
-                        "level": 2,
-                        "heading": "Subsection",
-                        "content": "Subsection content.",
-                        "children": [],
-                    },
-                ],
+                "title": "Getting Started",
+                "level": 2,
+                "content_type": "procedural",
+                "importance": "medium",
+                "semantic_tags": ["guide", "tutorial"],
             },
         ],
-        "metadata": {
-            "author": "Test Author",
-            "date": "2024-01-01",
+        "statistics": {
+            "total_sections": 5,
+            "total_lines": 100,
+            "code_blocks": 2,
+            "tables": 1,
+            "links": 3,
         },
     }
 
 
 # =============================================================================
-# Parametrized Test Data
+# Function-scoped fixtures
 # =============================================================================
 
 
-@pytest.fixture(params=["markdown", "json", "yaml"])
-def supported_format(request: pytest.FixtureRequest) -> str:
-    """Parametrized fixture for supported formats."""
-    return request.param
+@pytest.fixture
+def temp_markdown_file(sample_markdown_content: str, tmp_path: Path) -> Path:
+    """Create a temporary markdown file for testing."""
+    file_path = tmp_path / "test.md"
+    file_path.write_text(sample_markdown_content, encoding="utf-8")
+    return file_path
 
 
-@pytest.fixture(params=[".md", ".MD", ".Markdown"])
-def markdown_extensions(request: pytest.FixtureRequest) -> str:
-    """Parametrized fixture for markdown extensions."""
-    return request.param
+@pytest.fixture
+def temp_json_file(sample_json_output: dict[str, Any], tmp_path: Path) -> Path:
+    """Create a temporary JSON file for testing."""
+    file_path = tmp_path / "test.json"
+    with open(file_path, "w", encoding="utf-8") as f:
+        json.dump(sample_json_output, f, indent=2)
+    return file_path
 
 
-@pytest.fixture(params=["json", "mcp"])
-def output_format(request: pytest.FixtureRequest) -> str:
-    """Parametrized fixture for output formats."""
-    return request.param
+@pytest.fixture
+def temp_directory_with_files(tmp_path: Path) -> Path:
+    """Create a temporary directory with multiple files for testing."""
+    docs_dir = tmp_path / "docs"
+    docs_dir.mkdir()
+
+    # Create various markdown files
+    (docs_dir / "index.md").write_text("# Index\n\nWelcome to the docs.", encoding="utf-8")
+    (docs_dir / "guide.md").write_text("# Guide\n\nFollow this guide.", encoding="utf-8")
+    (docs_dir / "api.md").write_text("# API\n\nAPI reference.", encoding="utf-8")
+
+    # Create subdirectory with files
+    api_dir = docs_dir / "api"
+    api_dir.mkdir()
+    (api_dir / "endpoints.md").write_text("# Endpoints\n\nAPI endpoints.", encoding="utf-8")
+
+    return docs_dir
+
+
+@pytest.fixture
+def mock_mcp_request() -> dict[str, Any]:
+    """Create a mock MCP request for testing."""
+    return {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": {
+            "name": "read_document",
+            "arguments": {
+                "path": "docs/test.md",
+                "format": "structured",
+            },
+        },
+    }
+
+
+@pytest.fixture
+def mock_mcp_response() -> dict[str, Any]:
+    """Create a mock MCP response for testing."""
+    return {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "result": {
+            "content": [
+                {
+                    "type": "text",
+                    "text": json.dumps(
+                        {
+                            "title": "Test Document",
+                            "sections": [],
+                        }
+                    ),
+                }
+            ]
+        },
+    }
+
+
+@pytest.fixture
+def temp_file_factory(tmp_path: Path) -> Generator[callable, None, None]:
+    """Factory fixture for creating temporary files."""
+    created_files: list[Path] = []
+
+    def _create_file(name: str, content: str) -> Path:
+        file_path = tmp_path / name
+        file_path.write_text(content, encoding="utf-8")
+        created_files.append(file_path)
+        return file_path
+
+    yield _create_file
+
+    # Cleanup is handled by tmp_path fixture
+
+
+@pytest.fixture
+def invalid_file_paths() -> list[str]:
+    """List of invalid file paths for negative testing."""
+    return [
+        "",
+        "/nonexistent/path/file.md",
+        "relative/../path/file.md",
+        "file with spaces.md",
+        "file\twith\ttabs.md",
+        "file\x00with\x00nulls.md",
+    ]
+
+
+@pytest.fixture
+def valid_output_formats() -> list[str]:
+    """List of valid output formats."""
+    return ["structured", "json", "yaml"]
+
+
+# =============================================================================
+# Parametrized fixtures
+# =============================================================================
+
+
+@pytest.fixture(
+    params=[
+        "simple.md",
+        "nested/deep/path.md",
+        "file with spaces.md",
+        "unicode_文件.md",
+    ]
+)
+def various_path_formats(request: pytest.FixtureRequest) -> str:
+    """Parametrized fixture for various path formats."""
+    return str(request.param)
+
+
+# =============================================================================
+# Async fixtures
+# =============================================================================
+
+
+@pytest.fixture
+def async_temp_file(sample_markdown_content: str, tmp_path: Path) -> Path:
+    """Create a temporary file for async tests."""
+    file_path = tmp_path / "async_test.md"
+    file_path.write_text(sample_markdown_content, encoding="utf-8")
+    return file_path
+
+
+# =============================================================================
+# Markers
+# =============================================================================
+
+
+def pytest_configure(config: Any) -> None:
+    """Register custom markers."""
+    config.addinivalue_line("markers", "mcp: mark test as MCP protocol test")
+    config.addinivalue_line("markers", "async: mark test as async test")
+    config.addinivalue_line("markers", "integration: mark test as integration test")
+    config.addinivalue_line("markers", "slow: mark test as slow running")
+
+
+def pytest_collection_modifyitems(config: Any, items: list[Any]) -> None:
+    """Modify test collection to add markers automatically."""
+    for item in items:
+        # Add MCP marker to all tests in test_mcp_server.py
+        if "test_mcp_server" in str(item.fspath):
+            item.add_marker("mcp")
+
+        # Add async marker to async tests
+        if "async" in item.name.lower():
+            item.add_marker("async")
