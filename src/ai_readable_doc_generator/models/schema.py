@@ -1,174 +1,223 @@
-"""Output schema models for structured document transformation."""
+"""Schema definitions for document output formats."""
 
+from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
 
 
-class SchemaType(str, Enum):
-    """Enumeration of supported output schema types."""
+class OutputFormat(Enum):
+    """Supported output formats."""
 
-    BASIC = "basic"
-    DETAILED = "detailed"
-    SEMANTIC = "semantic"
+    JSON = "json"
+    YAML = "yaml"
     MCP = "mcp"
-    CUSTOM = "custom"
+    MARKDOWN = "markdown"
 
 
-class OutputSchema:
-    """Schema definition for structured output.
+@dataclass
+class SchemaField:
+    """A field definition in a schema."""
 
-    Attributes:
-        schema_type: The type of schema to use.
-        include_metadata: Whether to include metadata in output.
-        include_tags: Whether to include semantic tags.
-        include_importance: Whether to include importance levels.
-        flatten: Whether to flatten nested sections.
-        custom_fields: Additional custom fields to include.
-    """
-
-    # Default field configurations for each schema type
-    SCHEMA_CONFIGS: dict[SchemaType, dict[str, bool]] = {
-        SchemaType.BASIC: {
-            "include_metadata": False,
-            "include_tags": False,
-            "include_importance": False,
-            "flatten": True,
-        },
-        SchemaType.DETAILED: {
-            "include_metadata": True,
-            "include_tags": False,
-            "include_importance": False,
-            "flatten": False,
-        },
-        SchemaType.SEMANTIC: {
-            "include_metadata": True,
-            "include_tags": True,
-            "include_importance": True,
-            "flatten": False,
-        },
-        SchemaType.MCP: {
-            "include_metadata": True,
-            "include_tags": True,
-            "include_importance": True,
-            "flatten": False,
-        },
-        SchemaType.CUSTOM: {},
-    }
-
-    def __init__(
-        self,
-        schema_type: SchemaType = SchemaType.BASIC,
-        include_metadata: bool | None = None,
-        include_tags: bool | None = None,
-        include_importance: bool | None = None,
-        flatten: bool | None = None,
-        custom_fields: dict[str, Any] | None = None,
-    ) -> None:
-        """Initialize OutputSchema.
-
-        Args:
-            schema_type: The type of schema.
-            include_metadata: Override for metadata inclusion.
-            include_tags: Override for tags inclusion.
-            include_importance: Override for importance inclusion.
-            flatten: Override for flattening behavior.
-            custom_fields: Custom fields to include in output.
-        """
-        self.schema_type = schema_type
-        self.custom_fields = custom_fields or {}
-
-        # Start with default config for schema type
-        config = self.SCHEMA_CONFIGS.get(schema_type, self.SCHEMA_CONFIGS[SchemaType.BASIC]).copy()
-
-        # Apply overrides if provided
-        if include_metadata is not None:
-            config["include_metadata"] = include_metadata
-        if include_tags is not None:
-            config["include_tags"] = include_tags
-        if include_importance is not None:
-            config["include_importance"] = include_importance
-        if flatten is not None:
-            config["flatten"] = flatten
-
-        self.include_metadata = config["include_metadata"]
-        self.include_tags = config["include_tags"]
-        self.include_importance = config["include_importance"]
-        self.flatten = config["flatten"]
-
-    @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "OutputSchema":
-        """Create OutputSchema from dictionary.
-
-        Args:
-            data: Dictionary containing schema configuration.
-
-        Returns:
-            A new OutputSchema instance.
-        """
-        schema_type = SchemaType(data.get("schema_type", "basic"))
-        return cls(
-            schema_type=schema_type,
-            include_metadata=data.get("include_metadata"),
-            include_tags=data.get("include_tags"),
-            include_importance=data.get("include_importance"),
-            flatten=data.get("flatten"),
-            custom_fields=data.get("custom_fields"),
-        )
+    name: str
+    field_type: str
+    required: bool = True
+    default: Any = None
+    description: str = ""
+    enum_values: list[Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
-        """Convert schema to dictionary representation.
-
-        Returns:
-            Dictionary containing schema configuration.
-        """
-        result: dict[str, Any] = {
-            "schema_type": self.schema_type.value,
-            "include_metadata": self.include_metadata,
-            "include_tags": self.include_tags,
-            "include_importance": self.include_importance,
-            "flatten": self.flatten,
+        """Convert to dictionary representation."""
+        result = {
+            "name": self.name,
+            "type": self.field_type,
+            "required": self.required,
+            "description": self.description,
         }
-        if self.custom_fields:
-            result["custom_fields"] = self.custom_fields
+        if self.default is not None:
+            result["default"] = self.default
+        if self.enum_values:
+            result["enum"] = self.enum_values
         return result
 
-    def merge(self, other: "OutputSchema") -> "OutputSchema":
-        """Merge with another schema, taking non-default values from other.
 
-        Args:
-            other: Another OutputSchema to merge with.
+@dataclass
+class SchemaDefinition:
+    """Schema definition for document output."""
+
+    name: str
+    version: str = "1.0"
+    description: str = ""
+    fields: list[SchemaField] = field(default_factory=list)
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+    def add_field(self, field: SchemaField) -> None:
+        """Add a field to the schema."""
+        self.fields.append(field)
+
+    def get_field(self, name: str) -> SchemaField | None:
+        """Get a field by name."""
+        for f in self.fields:
+            if f.name == name:
+                return f
+        return None
+
+    def get_required_fields(self) -> list[SchemaField]:
+        """Get all required fields."""
+        return [f for f in self.fields if f.required]
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary representation."""
+        return {
+            "name": self.name,
+            "version": self.version,
+            "description": self.description,
+            "fields": [f.to_dict() for f in self.fields],
+            "metadata": self.metadata,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "SchemaDefinition":
+        """Create from dictionary representation."""
+        fields = [SchemaField(**f) for f in data.get("fields", [])]
+        return cls(
+            name=data["name"],
+            version=data.get("version", "1.0"),
+            description=data.get("description", ""),
+            fields=fields,
+            metadata=data.get("metadata", {}),
+        )
+
+    @classmethod
+    def document_schema(cls) -> "SchemaDefinition":
+        """Get the default document schema."""
+        schema = cls(
+            name="AIReadableDocument",
+            version="1.0",
+            description="Schema for AI-readable document output",
+        )
+        schema.add_field(SchemaField("title", "string", description="Document title"))
+        schema.add_field(SchemaField("version", "string", description="Document version"))
+        schema.add_field(SchemaField("author", "string", required=False))
+        schema.add_field(
+            SchemaField("created_at", "string", description="Creation timestamp")
+        )
+        schema.add_field(
+            SchemaField("updated_at", "string", required=False, description="Update timestamp")
+        )
+        schema.add_field(
+            SchemaField("content_type", "string", description="Document content type")
+        )
+        schema.add_field(
+            SchemaField("sections", "array", description="Document sections")
+        )
+        schema.add_field(
+            SchemaField("metadata", "object", required=False, description="Additional metadata")
+        )
+        schema.add_field(
+            SchemaField("semantic_tags", "array", required=False, description="Global semantic tags")
+        )
+        return schema
+
+    @classmethod
+    def mcp_schema(cls) -> "SchemaDefinition":
+        """Get the MCP-compatible schema."""
+        schema = cls(
+            name="MCPDocument",
+            version="1.0",
+            description="Schema for Model Context Protocol compatible output",
+        )
+        schema.add_field(SchemaField("context_type", "string"))
+        schema.add_field(SchemaField("content", "object"))
+        schema.add_field(SchemaField("annotations", "array", required=False))
+        schema.add_field(SchemaField("relationships", "object", required=False))
+        schema.add_field(SchemaField("metadata", "object", required=False))
+        return schema
+
+
+class SchemaValidator:
+    """Validator for document schemas."""
+
+    def __init__(self, schema: SchemaDefinition):
+        """Initialize with a schema."""
+        self.schema = schema
+
+    def validate(self, data: dict[str, Any]) -> tuple[bool, list[str]]:
+        """Validate data against schema.
 
         Returns:
-            A new merged OutputSchema.
+            Tuple of (is_valid, list of error messages)
         """
-        return OutputSchema(
-            schema_type=other.schema_type,
-            include_metadata=other.include_metadata
-            if other.schema_type != SchemaType.BASIC
-            else self.include_metadata,
-            include_tags=other.include_tags
-            if other.schema_type != SchemaType.BASIC
-            else self.include_tags,
-            include_importance=other.include_importance
-            if other.schema_type != SchemaType.BASIC
-            else self.include_importance,
-            flatten=other.flatten if other.schema_type != SchemaType.BASIC else self.flatten,
-            custom_fields={**self.custom_fields, **other.custom_fields},
-        )
+        errors = []
 
-    def __repr__(self) -> str:
-        """Return string representation of OutputSchema."""
-        return f"OutputSchema(type={self.schema_type.value})"
+        # Check required fields
+        for field in self.schema.get_required_fields():
+            if field.name not in data:
+                errors.append(f"Missing required field: {field.name}")
+            elif data[field.name] is None:
+                errors.append(f"Field cannot be null: {field.name}")
 
-    def __eq__(self, other: object) -> bool:
-        """Check equality with another OutputSchema."""
-        if not isinstance(other, OutputSchema):
-            return False
-        return (
-            self.schema_type == other.schema_type
-            and self.include_metadata == other.include_metadata
-            and self.include_tags == other.include_tags
-            and self.include_importance == other.include_importance
-            and self.flatten == other.flatten
-            and self.custom_fields == other.custom_fields
-        )
+        # Check field types
+        for field in self.schema.fields:
+            if field.name in data and data[field.name] is not None:
+                if not self._check_type(data[field.name], field.field_type):
+                    errors.append(
+                        f"Invalid type for field '{field.name}': "
+                        f"expected {field.field_type}, got {type(data[field.name]).__name__}"
+                    )
+
+        # Check enum values
+        for field in self.schema.fields:
+            if field.enum_values and field.name in data:
+                if data[field.name] not in field.enum_values:
+                    errors.append(
+                        f"Invalid value for field '{field.name}': "
+                        f"must be one of {field.enum_values}"
+                    )
+
+        return len(errors) == 0, errors
+
+    def _check_type(self, value: Any, expected_type: str) -> bool:
+        """Check if value matches expected type."""
+        type_map = {
+            "string": str,
+            "integer": int,
+            "number": (int, float),
+            "boolean": bool,
+            "array": list,
+            "object": dict,
+            "null": type(None),
+        }
+
+        expected = type_map.get(expected_type)
+        if expected is None:
+            return True  # Unknown types are considered valid
+
+        return isinstance(value, expected)
+
+    def validate_field(self, field_name: str, value: Any) -> tuple[bool, str | None]:
+        """Validate a single field.
+
+        Returns:
+            Tuple of (is_valid, error_message)
+        """
+        field = self.schema.get_field(field_name)
+        if field is None:
+            return False, f"Unknown field: {field_name}"
+
+        if field.required and value is None:
+            return False, f"Required field cannot be null: {field_name}"
+
+        if not self._check_type(value, field.field_type):
+            return (
+                False,
+                f"Invalid type for field '{field_name}': "
+                f"expected {field.field_type}, got {type(value).__name__}",
+            )
+
+        if field.enum_values and value not in field.enum_values:
+            return (
+                False,
+                f"Invalid value for field '{field_name}': must be one of {field.enum_values}",
+            )
+
+        return True, None
