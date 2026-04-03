@@ -1,297 +1,763 @@
-"""Document converter for transforming documents to AI-readable formats."""
+"""Document converters for different input formats."""
 
 import json
+import re
 from typing import Any, Optional
 
-from .models.document import Document, MarkdownParser, DocumentSection
-from .models.schema import (
-    OutputFormat,
-    SectionType,
-    ContentClassification,
-    SemanticTag,
-    Relationship
-)
-from .parser.plugins.semantic_tagger import SemanticTagger
+from markdown_it import MarkdownIt
+from markdown_it.token import Token
+from markdown_it.renderer import RendererHTML
+
+from .base import BaseConverter, ConversionOptions, ConversionResult
 
 
-class DocumentConverter:
-    """
-    Converts documents to AI-readable formats with semantic tagging.
+class MarkdownConverter(BaseConverter):
+    """Converter for Markdown documents to AI-readable JSON format."""
 
-    This is the main entry point for document conversion, supporting:
-    - Markdown input parsing
-    - Semantic tagging
-    - Multiple output formats (JSON, YAML, MCP)
-    """
-
-    def __init__(self):
-        self.parser = MarkdownParser()
-        self.tagger = SemanticTagger()
-
-    def convert(
-        self,
-        content: str,
-        source_name: str = "",
-        output_format: OutputFormat = OutputFormat.JSON,
-        include_metadata: bool = True,
-        tag_sections: bool = True,
-        tag_content_types: bool = True,
-        extract_relationships: bool = True,
-        add_importance: bool = False
-    ) -> dict[str, Any]:
-        """
-        Convert document content to AI-readable format.
+    def __init__(self, options: Optional[ConversionOptions] = None):
+        """Initialize Markdown converter.
 
         Args:
-            content: The document content (Markdown)
-            source_name: Name or path identifier for the source
-            output_format: Desired output format
-            include_metadata: Include document metadata in output
-            tag_sections: Add semantic tags to sections
-            tag_content_types: Classify content types
-            extract_relationships: Extract section relationships
-            add_importance: Add importance indicators
+            options: Configuration options for conversion.
+        """
+        super().__init__(options)
+        self.md = MarkdownIt("commonmark", {"breaks": True, "html": True})
+
+    def validate(self, content: str) -> bool:
+        """Validate Markdown content.
+
+        Args:
+            content: The Markdown content to validate.
 
         Returns:
-            Dictionary representation of the converted document
+            True if valid Markdown, False otherwise.
         """
-        # Parse document
-        document = self.parser.parse(content, source_name)
+        if not content or not content.strip():
+            return False
+        try:
+            self.md.parse(content)
+            return True
+        except Exception:
+            return False
 
-        # Apply semantic tagging
-        if tag_sections or tag_content_types:
-            self._apply_semantic_tags(document, tag_sections, tag_content_types)
+    def convert(self, content: str) -> ConversionResult:
+        """Convert Markdown content to AI-readable JSON format.
 
-        # Extract relationships
-        if extract_relationships:
-            self._extract_relationships(document)
+        Args:
+            content: The Markdown content to convert.
 
-        # Add importance indicators
-        if add_importance:
-            self._add_importance(document)
+        Returns:
+            ConversionResult with structured JSON output.
+        """
+        errors = []
+        warnings = []
 
-        # Build output
-        output = self._build_output(
-            document,
-            include_metadata,
-            extract_relationships
-        )
+        if not content:
+            errors.append("Empty content provided")
+            return ConversionResult(success=False, content="", errors=errors)
 
-        return output
+        try:
+            tokens = self.md.parse(content)
+            structure = self._parse_markdown_structure(tokens, content)
+            result = self._build_json_output(structure, content)
+            return ConversionResult(success=True, content=result, metadata={"format": "markdown"})
+        except Exception as e:
+            errors.append(f"Conversion failed: {str(e)}")
+            return ConversionResult(success=False, content="", errors=errors)
 
-    def _apply_semantic_tags(
-        self,
-        document: Document,
-        tag_sections: bool,
-        tag_content_types: bool
-    ) -> None:
-        """Apply semantic tags to document sections."""
-        for section in document.sections:
-            if tag_sections:
-                # Add section type tag
-                section.semantic_tags.append(
-                    SemanticTag(
-                        name="section_type",
-                        value=section.type.value,
-                        confidence=1.0
-                    )
-                )
+    def _parse_markdown_structure(self, tokens: list[Token], content: str) -> dict[str, Any]:
+        """Parse Markdown tokens into structured data.
 
-                # Add heading level tag for headings
-                if section.type.value.startswith("heading_"):
-                    section.semantic_tags.append(
-                        SemanticTag(
-                            name="heading_level",
-                            value=str(section.level),
-                            confidence=1.0
-                        )
-                    )
+        Args:
+            tokens: Parsed Markdown tokens.
+            content: Original Markdown content.
 
-            if tag_content_types:
-                # Classify content type
-                classification = self.tagger.classify_content(
-                    section.content,
-                    section.type
-                )
-                section.classification = classification
+        Returns:
+            Structured dictionary representation.
+        """
+        sections = []
+        current_section = None
+        section_stack = []
 
-                if classification:
-                    section.semantic_tags.append(
-                        SemanticTag(
-                            name="content_class",
-                            value=classification.value,
-                            confidence=0.85
-                        )
-                    )
-
-                # Detect special content patterns
-                special_tags = self.tagger.detect_patterns(section.content)
-                section.semantic_tags.extend(special_tags)
-
-    def _extract_relationships(self, document: Document) -> None:
-        """Extract relationships between document sections."""
-        sections = document.sections
-        heading_sections = [
-            (i, s) for i, s in enumerate(sections)
-            if s.type.value.startswith("heading_")
-        ]
-
-        for i, section in heading_sections:
-            # Relationship to previous heading (parent/sibling)
-            if i > 0:
-                prev_idx, prev_section = heading_sections[i - 1]
-                if prev_section.level < section.level:
-                    # Parent relationship
-                    document.relationships.append(
-                        Relationship(
-                            source_id=section.id,
-                            target_id=prev_section.id,
-                            relationship_type="parent",
-                            metadata={"parent_level": prev_section.level}
-                        )
-                    )
-                elif prev_section.level == section.level:
-                    # Sibling relationship
-                    document.relationships.append(
-                        Relationship(
-                            source_id=section.id,
-                            target_id=prev_section.id,
-                            relationship_type="sibling"
-                        )
-                    )
-
-            # Code examples relationship
-            if section.type == SectionType.HEADING_1 and "example" in section.content.lower():
-                # Look for code blocks after this heading
-                for j in range(i + 1, min(i + 5, len(sections))):
-                    if sections[j].type == SectionType.CODE_BLOCK:
-                        document.relationships.append(
-                            Relationship(
-                                source_id=section.id,
-                                target_id=sections[j].id,
-                                relationship_type="contains_example"
-                            )
-                        )
-
-    def _add_importance(self, document: Document) -> None:
-        """Add importance indicators to sections."""
-        for section in document.sections:
-            importance = 1  # Default
-
-            # Check for important indicators
-            content_lower = section.content.lower()
-
-            if any(word in content_lower for word in ["warning", "danger", "critical"]):
-                importance = 3
-            elif any(word in content_lower for word in ["important", "note", "caution"]):
-                importance = 2
-            elif section.type.value.startswith("heading_") and section.level == 1:
-                importance = 2
-
-            section.metadata["importance"] = importance
-
-    def _build_output(
-        self,
-        document: Document,
-        include_metadata: bool,
-        include_relationships: bool
-    ) -> dict[str, Any]:
-        """Build the final output dictionary."""
-        output = {}
-
-        if include_metadata:
-            output["metadata"] = document.metadata.to_dict()
-
-        output["content"] = [section.to_dict() for section in document.sections]
-        output["structure"] = document.structure.to_dict()
-
-        # Aggregate semantic tags by type
-        all_tags: dict[str, list[dict[str, Any]]] = {}
-        for section in document.sections:
-            for tag in section.semantic_tags:
-                if tag.name not in all_tags:
-                    all_tags[tag.name] = []
-                all_tags[tag.name].append({
-                    "section_id": section.id,
-                    "value": tag.value,
-                    "confidence": tag.confidence
+        for token in tokens:
+            if token.type == "heading_open":
+                level = int(token.tag[1]) if token.tag.startswith("h") else 1
+                heading_text = ""
+                section_type = self._classify_heading(level)
+            elif token.type == "inline" and current_section is not None:
+                heading_text = token.content
+            elif token.type == "heading_close":
+                if current_section:
+                    if self.options.max_heading_depth and level > self.options.max_heading_depth:
+                        warnings.append(f"Skipping heading at depth {level}")
+                        continue
+                    sections.append(current_section)
+                current_section = {
+                    "type": "heading",
+                    "level": level,
+                    "content": heading_text,
+                    "section_type": section_type,
+                    "children": [],
+                }
+            elif token.type == "paragraph_open":
+                if current_section is None:
+                    current_section = {"type": "paragraph", "content": "", "children": []}
+            elif token.type == "inline" and current_section and current_section["type"] == "paragraph":
+                current_section["content"] = token.content
+                sections.append(current_section)
+                current_section = None
+            elif token.type == "code_block" or token.type == "fence":
+                code_content = token.content
+                lang = token.info or "text"
+                sections.append({
+                    "type": "code",
+                    "language": lang,
+                    "content": code_content,
                 })
+            elif token.type == "blockquote_open":
+                if current_section is None:
+                    current_section = {"type": "blockquote", "content": "", "children": []}
+            elif token.type == "blockquote_close":
+                if current_section and current_section["type"] == "blockquote":
+                    sections.append(current_section)
+                    current_section = None
+            elif token.type == "list_open":
+                list_type = "ordered" if token.tag == "ol" else "unordered"
+                if current_section:
+                    current_section["children"].append({"type": "list_start", "list_type": list_type})
+            elif token.type == "list_item_open":
+                if current_section:
+                    current_section["children"].append({"type": "list_item"})
+            elif token.type == "list_close":
+                pass
+            elif token.type == "hr":
+                sections.append({"type": "horizontal_rule"})
 
-        output["semantic_tags"] = all_tags
+        if current_section:
+            sections.append(current_section)
 
-        if include_relationships:
-            output["relationships"] = [
-                rel.to_dict() for rel in document.relationships
-            ]
+        return {"sections": sections}
 
-        return output
+    def _classify_heading(self, level: int) -> str:
+        """Classify heading level to semantic type.
 
-    def to_json(self, document: Document, pretty: bool = True) -> str:
-        """Convert document to JSON string."""
-        output = document.to_dict()
-        if pretty:
-            return json.dumps(output, indent=2, ensure_ascii=False)
-        return json.dumps(output, ensure_ascii=False)
+        Args:
+            level: Heading level (1-6).
 
-    def to_mcp_format(self, document: Document) -> dict[str, Any]:
+        Returns:
+            Semantic type string.
         """
-        Convert document to MCP-specific format.
+        classification = {
+            1: "title",
+            2: "section",
+            3: "subsection",
+            4: "paragraph",
+            5: "detail",
+            6: "note",
+        }
+        return classification.get(level, "unknown")
 
-        MCP format includes additional metadata and structure
-        optimized for AI agent consumption.
+    def _build_json_output(self, structure: dict[str, Any], original: str) -> str:
+        """Build JSON output from parsed structure.
+
+        Args:
+            structure: Parsed document structure.
+            original: Original content.
+
+        Returns:
+            JSON string representation.
         """
-        base_output = document.to_dict()
-
-        # Add MCP-specific enhancements
-        mcp_output = {
+        output = {
             "document": {
-                "metadata": base_output.get("metadata", {}),
-                "sections": base_output.get("content", []),
-                "structure": base_output.get("structure", {}),
-                "semantic_analysis": base_output.get("semantic_tags", {})
+                "original_length": len(original),
+                "section_count": len(structure.get("sections", [])),
             },
-            "relationships": base_output.get("relationships", []),
-            "summary": {
-                "total_sections": len(base_output.get("content", [])),
-                "section_types": self._count_section_types(document),
-                "has_code_examples": any(
-                    s.type == SectionType.CODE_BLOCK for s in document.sections
-                ),
-                "complexity_score": self._calculate_complexity(document)
-            },
-            "context": {
-                "depth": document.structure.max_heading_level,
-                "word_count": document.metadata.word_count,
-                "has_front_matter": bool(document.metadata.front_matter)
-            }
+            "sections": structure.get("sections", []),
         }
 
-        return mcp_output
+        if self.options.include_metadata:
+            output["metadata"] = {
+                "source_format": "markdown",
+                "semantic_tagging_enabled": self.options.semantic_tagging,
+                "preserve_formatting": self.options.preserve_formatting,
+            }
 
-    def _count_section_types(self, document: Document) -> dict[str, int]:
-        """Count sections by type."""
-        counts: dict[str, int] = {}
-        for section in document.sections:
-            type_name = section.type.value
-            counts[type_name] = counts.get(type_name, 0) + 1
-        return counts
+        if self.options.include_toc:
+            output["table_of_contents"] = self._build_toc(structure)
 
-    def _calculate_complexity(self, document: Document) -> float:
-        """Calculate document complexity score."""
-        score = 0.0
+        return json.dumps(output, indent=2, ensure_ascii=False)
 
-        # Factor 1: Structure depth
-        score += document.structure.max_heading_level * 0.5
+    def _build_toc(self, structure: dict[str, Any]) -> list[dict[str, Any]]:
+        """Build table of contents from structure.
 
-        # Factor 2: Code blocks
-        code_count = sum(
-            1 for s in document.sections
-            if s.type == SectionType.CODE_BLOCK
-        )
-        score += min(code_count * 0.3, 2.0)
+        Args:
+            structure: Parsed document structure.
 
-        # Factor 3: Word count (normalized)
-        word_count = document.metadata.word_count
-        score += min(word_count / 1000, 3.0)
+        Returns:
+            List of TOC entries.
+        """
+        toc = []
+        for section in structure.get("sections", []):
+            if section.get("type") == "heading":
+                toc.append({
+                    "level": section.get("level", 1),
+                    "title": section.get("content", ""),
+                    "section_type": section.get("section_type", "unknown"),
+                })
+        return toc
 
-        return round(score, 2)
+    def get_supported_formats(self) -> list[str]:
+        """Get supported input formats."""
+        return ["md", "markdown", "mdown"]
+
+    def get_output_format(self) -> str:
+        """Get output format."""
+        return "json"
+
+
+class HTMLConverter(BaseConverter):
+    """Converter for HTML documents to AI-readable JSON format."""
+
+    def __init__(self, options: Optional[ConversionOptions] = None):
+        """Initialize HTML converter.
+
+        Args:
+            options: Configuration options for conversion.
+        """
+        super().__init__(options)
+        try:
+            from bs4 import BeautifulSoup
+            self.bs4 = BeautifulSoup
+        except ImportError:
+            self.bs4 = None
+
+    def validate(self, content: str) -> bool:
+        """Validate HTML content.
+
+        Args:
+            content: The HTML content to validate.
+
+        Returns:
+            True if valid HTML, False otherwise.
+        """
+        if not content or not content.strip():
+            return False
+        if self.bs4 is None:
+            return False
+        try:
+            self.bs4(content, "html.parser")
+            return True
+        except Exception:
+            return False
+
+    def convert(self, content: str) -> ConversionResult:
+        """Convert HTML content to AI-readable JSON format.
+
+        Args:
+            content: The HTML content to convert.
+
+        Returns:
+            ConversionResult with structured JSON output.
+        """
+        errors = []
+        warnings = []
+
+        if not content:
+            errors.append("Empty content provided")
+            return ConversionResult(success=False, content="", errors=errors)
+
+        if self.bs4 is None:
+            errors.append("BeautifulSoup4 is required for HTML conversion")
+            return ConversionResult(success=False, content="", errors=errors)
+
+        try:
+            soup = self.bs4(content, "html.parser")
+            structure = self._parse_html_structure(soup)
+            result = self._build_json_output(structure, content)
+            return ConversionResult(success=True, content=result, metadata={"format": "html"})
+        except Exception as e:
+            errors.append(f"Conversion failed: {str(e)}")
+            return ConversionResult(success=False, content="", errors=errors)
+
+    def _parse_html_structure(self, soup) -> dict[str, Any]:
+        """Parse HTML soup into structured data.
+
+        Args:
+            soup: BeautifulSoup parsed document.
+
+        Returns:
+            Structured dictionary representation.
+        """
+        sections = []
+
+        # Parse headings
+        for i in range(1, 7):
+            for heading in soup.find_all(f"h{i}"):
+                text = self._clean_text(heading.get_text())
+                if text:
+                    sections.append({
+                        "type": "heading",
+                        "level": i,
+                        "content": text,
+                        "section_type": self._classify_heading(i),
+                    })
+
+        # Parse paragraphs
+        for p in soup.find_all("p"):
+            text = self._clean_text(p.get_text())
+            if text:
+                sections.append({
+                    "type": "paragraph",
+                    "content": text,
+                })
+
+        # Parse code blocks
+        for pre in soup.find_all("pre"):
+            code = pre.find("code")
+            lang = ""
+            if code and code.get("class"):
+                classes = code.get("class", [])
+                for cls in classes:
+                    if cls.startswith("language-"):
+                        lang = cls[9:]
+                        break
+            text = self._clean_text(code.get_text() if code else pre.get_text())
+            sections.append({
+                "type": "code",
+                "language": lang,
+                "content": text,
+            })
+
+        # Parse lists
+        for ul in soup.find_all("ul"):
+            items = []
+            for li in ul.find_all("li"):
+                text = self._clean_text(li.get_text())
+                if text:
+                    items.append(text)
+            if items:
+                sections.append({
+                    "type": "list",
+                    "list_type": "unordered",
+                    "items": items,
+                })
+
+        for ol in soup.find_all("ol"):
+            items = []
+            for li in ol.find_all("li"):
+                text = self._clean_text(li.get_text())
+                if text:
+                    items.append(text)
+            if items:
+                sections.append({
+                    "type": "list",
+                    "list_type": "ordered",
+                    "items": items,
+                })
+
+        # Parse blockquotes
+        for blockquote in soup.find_all("blockquote"):
+            text = self._clean_text(blockquote.get_text())
+            if text:
+                sections.append({
+                    "type": "blockquote",
+                    "content": text,
+                })
+
+        # Parse tables
+        for table in soup.find_all("table"):
+            table_data = self._parse_table(table)
+            if table_data:
+                sections.append({
+                    "type": "table",
+                    "headers": table_data["headers"],
+                    "rows": table_data["rows"],
+                })
+
+        return {"sections": sections}
+
+    def _parse_table(self, table) -> dict[str, Any]:
+        """Parse HTML table into structured data.
+
+        Args:
+            table: BeautifulSoup table element.
+
+        Returns:
+            Dictionary with headers and rows.
+        """
+        headers = []
+        rows = []
+
+        thead = table.find("thead")
+        if thead:
+            header_row = thead.find("tr")
+            if header_row:
+                for th in header_row.find_all(["th", "td"]):
+                    headers.append(self._clean_text(th.get_text()))
+
+        tbody = table.find("tbody") or table
+        for tr in tbody.find_all("tr"):
+            if thead and tr == thead.find_parent("tr"):
+                continue
+            row = []
+            for td in tr.find_all(["td", "th"]):
+                row.append(self._clean_text(td.get_text()))
+            if row:
+                rows.append(row)
+
+        return {"headers": headers, "rows": rows}
+
+    def _clean_text(self, text: str) -> str:
+        """Clean text by removing extra whitespace.
+
+        Args:
+            text: Raw text.
+
+        Returns:
+            Cleaned text.
+        """
+        if not text:
+            return ""
+        return re.sub(r"\s+", " ", text).strip()
+
+    def _classify_heading(self, level: int) -> str:
+        """Classify heading level to semantic type.
+
+        Args:
+            level: Heading level (1-6).
+
+        Returns:
+            Semantic type string.
+        """
+        classification = {
+            1: "title",
+            2: "section",
+            3: "subsection",
+            4: "paragraph",
+            5: "detail",
+            6: "note",
+        }
+        return classification.get(level, "unknown")
+
+    def _build_json_output(self, structure: dict[str, Any], original: str) -> str:
+        """Build JSON output from parsed structure.
+
+        Args:
+            structure: Parsed document structure.
+            original: Original content.
+
+        Returns:
+            JSON string representation.
+        """
+        output = {
+            "document": {
+                "original_length": len(original),
+                "section_count": len(structure.get("sections", [])),
+            },
+            "sections": structure.get("sections", []),
+        }
+
+        if self.options.include_metadata:
+            output["metadata"] = {
+                "source_format": "html",
+                "semantic_tagging_enabled": self.options.semantic_tagging,
+                "preserve_formatting": self.options.preserve_formatting,
+            }
+
+        if self.options.include_toc:
+            output["table_of_contents"] = self._build_toc(structure)
+
+        return json.dumps(output, indent=2, ensure_ascii=False)
+
+    def _build_toc(self, structure: dict[str, Any]) -> list[dict[str, Any]]:
+        """Build table of contents from structure.
+
+        Args:
+            structure: Parsed document structure.
+
+        Returns:
+            List of TOC entries.
+        """
+        toc = []
+        for section in structure.get("sections", []):
+            if section.get("type") == "heading":
+                toc.append({
+                    "level": section.get("level", 1),
+                    "title": section.get("content", ""),
+                    "section_type": section.get("section_type", "unknown"),
+                })
+        return toc
+
+    def get_supported_formats(self) -> list[str]:
+        """Get supported input formats."""
+        return ["html", "htm"]
+
+    def get_output_format(self) -> str:
+        """Get output format."""
+        return "json"
+
+
+class PlaintextConverter(BaseConverter):
+    """Converter for plain text documents to AI-readable JSON format."""
+
+    def __init__(self, options: Optional[ConversionOptions] = None):
+        """Initialize Plaintext converter.
+
+        Args:
+            options: Configuration options for conversion.
+        """
+        super().__init__(options)
+
+    def validate(self, content: str) -> bool:
+        """Validate plain text content.
+
+        Args:
+            content: The text content to validate.
+
+        Returns:
+            Always True for plain text, as any string is valid.
+        """
+        return content is not None
+
+    def convert(self, content: str) -> ConversionResult:
+        """Convert plain text content to AI-readable JSON format.
+
+        Args:
+            content: The plain text content to convert.
+
+        Returns:
+            ConversionResult with structured JSON output.
+        """
+        errors = []
+
+        if content is None:
+            errors.append("Content cannot be None")
+            return ConversionResult(success=False, content="", errors=errors)
+
+        try:
+            structure = self._parse_text_structure(content)
+            result = self._build_json_output(structure, content)
+            return ConversionResult(success=True, content=result, metadata={"format": "plaintext"})
+        except Exception as e:
+            errors.append(f"Conversion failed: {str(e)}")
+            return ConversionResult(success=False, content="", errors=errors)
+
+    def _parse_text_structure(self, content: str) -> dict[str, Any]:
+        """Parse plain text into structured data.
+
+        Args:
+            content: Plain text content.
+
+        Returns:
+            Structured dictionary representation.
+        """
+        lines = content.split("\n")
+        sections = []
+        current_paragraph: list[str] = []
+
+        for line in lines:
+            stripped = line.strip()
+
+            # Check if line is a heading (all caps or starts with #)
+            if stripped.startswith("#"):
+                if current_paragraph:
+                    sections.append({
+                        "type": "paragraph",
+                        "content": " ".join(current_paragraph),
+                    })
+                    current_paragraph = []
+
+                heading_text = stripped.lstrip("#").strip()
+                level = len(stripped) - len(stripped.lstrip("#"))
+                sections.append({
+                    "type": "heading",
+                    "level": min(level, 6),
+                    "content": heading_text,
+                    "section_type": self._classify_heading(min(level, 6)),
+                })
+
+            # Check for markdown-style heading (underlined with === or ---)
+            elif stripped == "=" * len(stripped) if stripped else False:
+                if current_paragraph and len(sections) > 0:
+                    prev = sections[-1]
+                    if prev["type"] == "paragraph":
+                        sections[-1] = {
+                            "type": "heading",
+                            "level": 1,
+                            "content": prev["content"],
+                            "section_type": "title",
+                        }
+                        current_paragraph = []
+                continue
+
+            elif stripped == "-" * len(stripped) if stripped else False:
+                if current_paragraph and len(sections) > 0:
+                    prev = sections[-1]
+                    if prev["type"] == "paragraph":
+                        sections[-1] = {
+                            "type": "heading",
+                            "level": 2,
+                            "content": prev["content"],
+                            "section_type": "section",
+                        }
+                        current_paragraph = []
+                continue
+
+            # Check for list items
+            elif stripped.startswith(("- ", "* ", "+ ")):
+                if current_paragraph:
+                    sections.append({
+                        "type": "paragraph",
+                        "content": " ".join(current_paragraph),
+                    })
+                    current_paragraph = []
+
+                item_text = stripped[2:].strip()
+                sections.append({
+                    "type": "list_item",
+                    "list_type": "unordered",
+                    "content": item_text,
+                })
+
+            # Check for numbered list items
+            elif re.match(r"^\d+[\.\)]\s", stripped):
+                if current_paragraph:
+                    sections.append({
+                        "type": "paragraph",
+                        "content": " ".join(current_paragraph),
+                    })
+                    current_paragraph = []
+
+                item_text = re.sub(r"^\d+[\.\)]\s", "", stripped)
+                sections.append({
+                    "type": "list_item",
+                    "list_type": "ordered",
+                    "content": item_text,
+                })
+
+            # Check for blockquote
+            elif stripped.startswith(">"):
+                if current_paragraph:
+                    sections.append({
+                        "type": "paragraph",
+                        "content": " ".join(current_paragraph),
+                    })
+                    current_paragraph = []
+
+                quote_text = stripped.lstrip(">").strip()
+                sections.append({
+                    "type": "blockquote",
+                    "content": quote_text,
+                })
+
+            # Check for horizontal rule
+            elif re.match(r"^[-*_]{3,}$", stripped):
+                if current_paragraph:
+                    sections.append({
+                        "type": "paragraph",
+                        "content": " ".join(current_paragraph),
+                    })
+                    current_paragraph = []
+
+                sections.append({
+                    "type": "horizontal_rule",
+                })
+
+            # Empty line - end current paragraph
+            elif not stripped:
+                if current_paragraph:
+                    sections.append({
+                        "type": "paragraph",
+                        "content": " ".join(current_paragraph),
+                    })
+                    current_paragraph = []
+
+            # Regular text - add to current paragraph
+            else:
+                current_paragraph.append(stripped)
+
+        # Handle remaining paragraph
+        if current_paragraph:
+            sections.append({
+                "type": "paragraph",
+                "content": " ".join(current_paragraph),
+            })
+
+        return {"sections": sections}
+
+    def _classify_heading(self, level: int) -> str:
+        """Classify heading level to semantic type.
+
+        Args:
+            level: Heading level (1-6).
+
+        Returns:
+            Semantic type string.
+        """
+        classification = {
+            1: "title",
+            2: "section",
+            3: "subsection",
+            4: "paragraph",
+            5: "detail",
+            6: "note",
+        }
+        return classification.get(level, "unknown")
+
+    def _build_json_output(self, structure: dict[str, Any], original: str) -> str:
+        """Build JSON output from parsed structure.
+
+        Args:
+            structure: Parsed document structure.
+            original: Original content.
+
+        Returns:
+            JSON string representation.
+        """
+        output = {
+            "document": {
+                "original_length": len(original),
+                "line_count": len(original.split("\n")),
+                "section_count": len(structure.get("sections", [])),
+            },
+            "sections": structure.get("sections", []),
+        }
+
+        if self.options.include_metadata:
+            output["metadata"] = {
+                "source_format": "plaintext",
+                "semantic_tagging_enabled": self.options.semantic_tagging,
+                "preserve_formatting": self.options.preserve_formatting,
+            }
+
+        if self.options.include_toc:
+            output["table_of_contents"] = self._build_toc(structure)
+
+        return json.dumps(output, indent=2, ensure_ascii=False)
+
+    def _build_toc(self, structure: dict[str, Any]) -> list[dict[str, Any]]:
+        """Build table of contents from structure.
+
+        Args:
+            structure: Parsed document structure.
+
+        Returns:
+            List of TOC entries.
+        """
+        toc = []
+        for section in structure.get("sections", []):
+            if section.get("type") == "heading":
+                toc.append({
+                    "level": section.get("level", 1),
+                    "title": section.get("content", ""),
+                    "section_type": section.get("section_type", "unknown"),
+                })
+        return toc
+
+    def get_supported_formats(self) -> list[str]:
+        """Get supported input formats."""
+        return ["txt", "text", "plain"]
+
+    def get_output_format(self) -> str:
+        """Get output format."""
+        return "json"

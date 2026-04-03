@@ -1,94 +1,90 @@
-"""Base converter class for document conversion."""
+"""Base converter module providing common functionality for all converters."""
 
 from abc import ABC, abstractmethod
-from typing import Optional
+from dataclasses import dataclass, field
+from typing import Any, Optional
 
-from ai_readable_doc_generator.models import Document, OutputSchema, SchemaType
+
+@dataclass
+class ConversionOptions:
+    """Options for document conversion."""
+
+    include_metadata: bool = True
+    include_toc: bool = True
+    semantic_tagging: bool = True
+    preserve_formatting: bool = True
+    max_heading_depth: Optional[int] = None
+    custom_schema: Optional[dict[str, Any]] = None
+
+
+@dataclass
+class ConversionResult:
+    """Result of a document conversion."""
+
+    success: bool
+    content: str
+    errors: list[str] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+    @property
+    def has_errors(self) -> bool:
+        """Check if the conversion has errors."""
+        return len(self.errors) > 0
+
+    @property
+    def has_warnings(self) -> bool:
+        """Check if the conversion has warnings."""
+        return len(self.warnings) > 0
 
 
 class BaseConverter(ABC):
-    """
-    Abstract base class for document converters.
+    """Abstract base class for document converters."""
 
-    Converters transform raw document content into structured Document objects
-    with semantic tagging and metadata.
-
-    Attributes:
-        schema: Output schema to use for conversion.
-        options: Additional conversion options.
-    """
-
-    def __init__(
-        self,
-        schema: Optional[OutputSchema] = None,
-        options: Optional[dict] = None,
-    ) -> None:
-        """
-        Initialize the converter.
+    def __init__(self, options: Optional[ConversionOptions] = None):
+        """Initialize the converter with optional configuration.
 
         Args:
-            schema: Output schema to use. Defaults to standard schema.
-            options: Additional conversion options.
+            options: Configuration options for the conversion process.
         """
-        self.schema = schema or OutputSchema.standard()
-        self.options = options or {}
+        self.options = options or ConversionOptions()
 
     @abstractmethod
-    def convert(self, content: str, source_path: str = "") -> Document:
-        """
-        Convert raw content to a structured Document.
+    def convert(self, content: str) -> ConversionResult:
+        """Convert document content to AI-readable format.
 
         Args:
-            content: Raw document content.
-            source_path: Optional source file path.
+            content: The raw document content to convert.
 
         Returns:
-            Structured Document object.
+            ConversionResult containing the converted content and metadata.
         """
         pass
 
     @abstractmethod
-    def parse(self, content: str) -> Document:
-        """
-        Parse content into sections without full conversion.
-
-        This method can be used for quick parsing without
-        applying full semantic analysis.
+    def validate(self, content: str) -> bool:
+        """Validate if the content can be converted.
 
         Args:
-            content: Raw document content.
+            content: The content to validate.
 
         Returns:
-            Parsed Document with basic structure.
+            True if the content is valid for conversion, False otherwise.
         """
         pass
 
-    def validate_content(self, content: str) -> bool:
-        """
-        Validate that content can be processed.
-
-        Args:
-            content: Content to validate.
+    def get_supported_formats(self) -> list[str]:
+        """Get list of supported input formats.
 
         Returns:
-            True if content is valid for processing.
+            List of format identifiers supported by this converter.
         """
-        return bool(content and content.strip())
+        return []
 
-    def get_schema(self) -> OutputSchema:
-        """
-        Get the current output schema.
+    def get_output_format(self) -> str:
+        """Get the output format identifier.
 
         Returns:
-            Current OutputSchema instance.
+            The output format string (e.g., 'json', 'yaml').
         """
-        return self.schema
-
-    def set_schema(self, schema: OutputSchema) -> None:
-        """
-        Set a new output schema.
-
-        Args:
-            schema: New OutputSchema to use.
-        """
-        self.schema = schema
+        return "json"

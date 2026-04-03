@@ -5,10 +5,10 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "ai-readable-doc-generator"
 version = "0.1.0"
-description = "Transform documentation into AI-Agent-friendly formats with semantic tagging and MCP compatibility"
+description = "Transform documentation into AI-Agent-friendly formats"
 readme = "README.md"
-license = {text = "MIT"}
 requires-python = ">=3.11"
+license = {text = "MIT"}
 authors = [
     {name = "Developer", email = "dev@example.com"}
 ]
@@ -20,24 +20,27 @@ classifiers = [
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
-    "Topic :: Software Development :: Libraries :: Python Modules",
 ]
+
 dependencies = [
     "click>=8.1.0",
     "rich>=13.0.0",
-    "pydantic>=2.0.0",
+    "markdown-it-py>=3.0.0",
+    "beautifulsoup4>=4.12.0",
+    "pyyaml>=6.0.0",
 ]
 
 [project.optional-dependencies]
 dev = [
-    "pytest>=7.4.0",
+    "pytest>=8.0.0",
     "pytest-cov>=4.1.0",
-    "ruff>=0.1.0",
-    "mypy>=1.7.0",
+    "pytest-asyncio>=0.23.0",
+    "ruff>=0.3.0",
+    "mypy>=1.9.0",
 ]
 
 [project.scripts]
-ai-doc-gen = "ai_readable_doc_generator.cli.cli:main"
+ai-doc-gen = "ai_readable_doc_generator.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
@@ -49,7 +52,7 @@ python_functions = ["test_*"]
 addopts = "-v --tb=short"
 
 [tool.ruff]
-line-length = 100
+line-length = 88
 target-version = "py311"
 
 [tool.mypy]
