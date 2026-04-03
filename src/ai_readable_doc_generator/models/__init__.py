@@ -1,23 +1,23 @@
 """
-Domain models for AI-readable documentation generation.
+Models package for ai-readable-doc-generator.
 
-This package contains the core domain models:
-- Section: Document sections with content, metadata, and hierarchy support
-- SectionMetadata: Semantic metadata for AI processing
-- SectionType: Types of content a section can contain
-- ContentImportance: Importance levels for AI understanding
+This package contains the domain models that represent the structure
+and semantics of AI-readable documents.
 """
 
+from ai_readable_doc_generator.models.schema import OutputSchema, SchemaType
 from ai_readable_doc_generator.models.section import (
-    ContentImportance,
+    ContentType,
     Section,
-    SectionMetadata,
     SectionType,
 )
+from ai_readable_doc_generator.models.document import Document
 
 __all__ = [
+    "ContentType",
+    "Document",
+    "OutputSchema",
+    "SchemaType",
     "Section",
-    "SectionMetadata",
     "SectionType",
-    "ContentImportance",
 ]

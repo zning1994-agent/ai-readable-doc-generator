@@ -1,22 +1,12 @@
 """
-AI-Readable Document Generator.
+ai-readable-doc-generator - Transform documentation into AI-friendly formats.
 
-A tool that transforms documentation into AI-agent-friendly formats with
-structured output, semantic tagging, and MCP compatibility.
+This package provides tools for converting documents into structured,
+AI-readable formats with semantic tagging and MCP compatibility.
 """
 
 __version__ = "0.1.0"
 
-from ai_readable_doc_generator.models import (
-    Section,
-    SectionMetadata,
-    SectionType,
-    ContentImportance,
-)
+from ai_readable_doc_generator.models import Document
 
-__all__ = [
-    "Section",
-    "SectionMetadata",
-    "SectionType",
-    "ContentImportance",
-]
+__all__ = ["Document", "__version__"]
