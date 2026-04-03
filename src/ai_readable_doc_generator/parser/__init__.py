@@ -1,7 +1,5 @@
-"""
-Parser module for AI-Readable Document Generator.
+"""Parser package for document parsing."""
 
-This module handles parsing of various document formats into structured representations.
-"""
+from ai_readable_doc_generator.parser.plugins.semantic_tagger import SemanticTagger
 
-__version__ = "0.1.0"
+__all__ = ["SemanticTagger"]

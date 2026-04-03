@@ -1,5 +1,9 @@
-"""Document module for ai-readable-doc-generator."""
+"""Document module for ai-readable-doc-generator.
 
-from .models import Document, DocumentMetadata, Section, SectionType
+This module provides the main Document class and related utilities
+for representing structured documents.
+"""
 
-__all__ = ["Document", "DocumentMetadata", "Section", "SectionType"]
+from ai_readable_doc_generator.models import Document, DocumentMetadata, Section
+
+__all__ = ["Document", "DocumentMetadata", "Section"]

@@ -5,14 +5,14 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "ai-readable-doc-generator"
 version = "0.1.0"
-description = "Transform documentation into AI-agent-friendly formats with semantic tagging and MCP compatibility"
+description = "Transform documentation into AI-agent-friendly formats with structured output and semantic tagging"
 readme = "README.md"
 license = {text = "MIT"}
 requires-python = ">=3.11"
 authors = [
-    {name = "AI Doc Generator Team"}
+    {name = "AI Documentation Team"}
 ]
-keywords = ["documentation", "ai", "llm", "mcp", "semantic", "markdown", "html"]
+keywords = ["documentation", "ai", "llm", "mcp", "rag", "knowledge-base"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
@@ -20,21 +20,20 @@ classifiers = [
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
-    "Topic :: Text Processing :: Markup :: HTML",
-    "Topic :: Text Processing :: Markup :: Markdown",
+    "Topic :: Text Processing :: Markup",
 ]
 
 dependencies = [
-    "beautifulsoup4>=4.12.0",
-    "lxml>=5.0.0",
+    "click>=8.1.0",
+    "rich>=13.0.0",
 ]
 
 [project.optional-dependencies]
 dev = [
-    "pytest>=8.0.0",
-    "pytest-cov>=4.1.0",
-    "ruff>=0.4.0",
-    "mypy>=1.9.0",
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+    "ruff>=0.1.0",
+    "mypy>=1.0.0",
 ]
 
 [project.scripts]
@@ -59,5 +58,4 @@ disallow_untyped_defs = true
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
-python_functions = ["test_*"]
 addopts = "-v"

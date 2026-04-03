@@ -1,41 +1,46 @@
-"""AI-Readable Document Generator.
+"""
+ai-readable-doc-generator
 
-A tool for converting documentation into AI-agent-friendly formats.
+Transform documentation into AI-agent-friendly formats with structured output
+and semantic tagging.
+
+Example:
+    >>> from ai_readable_doc_generator import PlaintextConverter
+    >>> converter = PlaintextConverter()
+    >>> doc = converter.convert("# Hello World\\n\\nThis is a test.")
+    >>> print(doc.metadata.title)
+    Hello World
 """
 
-__version__ = "0.1.0"
-__author__ = "AI Documentation Tools"
-__license__ = "MIT"
-
+from ai_readable_doc_generator.base import BaseConverter
+from ai_readable_doc_generator.converter import PlaintextConverter, PlaintextHeuristics
 from ai_readable_doc_generator.models import (
-    ContentImportance,
     Document,
     DocumentMetadata,
-    DocumentRelationship,
-    DocumentSummary,
-    OutputSchema,
-    SchemaField,
-    SchemaVersion,
     Section,
     SectionType,
+    ContentType,
+    Importance,
+    OutputSchema,
+    SchemaType,
 )
-from ai_readable_doc_generator.transformer import BaseTransformer, JSONTransformer
+
+__version__ = "0.1.0"
 
 __all__ = [
-    # Version
-    "__version__",
+    # Core
+    "BaseConverter",
+    "PlaintextConverter",
+    "PlaintextHeuristics",
     # Models
-    "ContentImportance",
     "Document",
     "DocumentMetadata",
-    "DocumentRelationship",
-    "DocumentSummary",
-    "OutputSchema",
-    "SchemaField",
-    "SchemaVersion",
     "Section",
     "SectionType",
-    # Transformers
-    "BaseTransformer",
-    "JSONTransformer",
+    "ContentType",
+    "Importance",
+    "OutputSchema",
+    "SchemaType",
+    # Utilities
+    "__version__",
 ]

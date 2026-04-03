@@ -1,87 +1,136 @@
-"""Schema models for structured document output."""
+"""Schema definitions for output formats."""
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any
+from typing import Optional
 
 
-class SchemaVersion(str, Enum):
-    """Supported schema versions."""
+class SchemaType(Enum):
+    """Supported output schema types."""
 
-    V1 = "1.0"
-    V2 = "2.0"
+    STANDARD = "standard"
+    MCP = "mcp"
+    MINIMAL = "minimal"
+    DETAILED = "detailed"
 
 
 @dataclass
 class SchemaField:
-    """Represents a field in the output schema."""
+    """
+    Definition of a schema field.
+
+    Attributes:
+        name: Field name.
+        field_type: Expected field type.
+        required: Whether the field is required.
+        description: Field description.
+        default: Default value if not present.
+    """
 
     name: str
     field_type: str
-    required: bool = True
+    required: bool = False
     description: str = ""
-    default: Any = None
+    default: Optional[object] = None
 
 
 @dataclass
 class OutputSchema:
-    """Schema configuration for structured output."""
+    """
+    Schema definition for document output.
 
-    version: SchemaVersion = SchemaVersion.V1
-    include_metadata: bool = True
-    include_semantic_tags: bool = True
-    include_summary: bool = True
-    indent: int = 2
-    sort_keys: bool = False
+    Attributes:
+        schema_type: Type of schema.
+        fields: List of schema fields.
+        version: Schema version.
+        description: Schema description.
+        metadata: Additional schema metadata.
+    """
 
-    # Schema field definitions
+    schema_type: SchemaType = SchemaType.STANDARD
     fields: list[SchemaField] = field(default_factory=list)
-
-    def to_dict(self) -> dict[str, Any]:
-        """Convert schema to dictionary representation."""
-        return {
-            "version": self.version.value,
-            "include_metadata": self.include_metadata,
-            "include_semantic_tags": self.include_semantic_tags,
-            "include_summary": self.include_summary,
-            "indent": self.indent,
-            "sort_keys": self.sort_keys,
-            "fields": [
-                {"name": f.name, "type": f.field_type, "required": f.required}
-                for f in self.fields
-            ],
-        }
+    version: str = "1.0"
+    description: str = ""
+    metadata: dict = field(default_factory=dict)
 
     @classmethod
-    def default_schema(cls) -> "OutputSchema":
-        """Create a default output schema."""
+    def standard(cls) -> "OutputSchema":
+        """
+        Create a standard schema.
+
+        Returns:
+            Standard schema instance.
+        """
         return cls(
-            version=SchemaVersion.V1,
+            schema_type=SchemaType.STANDARD,
+            description="Standard output schema for general use",
             fields=[
-                SchemaField("title", "string", required=True, description="Document title"),
-                SchemaField("content", "string", required=True, description="Main content"),
-                SchemaField("sections", "array", required=False, description="Document sections"),
-                SchemaField("metadata", "object", required=False, description="Document metadata"),
-                SchemaField("semantic_tags", "object", required=False, description="Semantic tags"),
+                SchemaField("content", "string", True, "Main content text"),
+                SchemaField("type", "string", True, "Content type classification"),
+                SchemaField("level", "integer", False, "Hierarchy level"),
+                SchemaField("metadata", "object", False, "Additional metadata"),
             ],
         )
 
     @classmethod
-    def mcp_schema(cls) -> "OutputSchema":
-        """Create MCP-compatible schema."""
+    def mcp(cls) -> "OutputSchema":
+        """
+        Create an MCP-compatible schema.
+
+        Returns:
+            MCP schema instance.
+        """
         return cls(
-            version=SchemaVersion.V2,
-            include_metadata=True,
-            include_semantic_tags=True,
-            include_summary=True,
+            schema_type=SchemaType.MCP,
+            version="1.0",
+            description="Model Context Protocol compatible schema",
             fields=[
-                SchemaField("document_id", "string", required=True, description="Unique document ID"),
-                SchemaField("title", "string", required=True, description="Document title"),
-                SchemaField("content", "string", required=True, description="Main content"),
-                SchemaField("sections", "array", required=False, description="Document sections"),
-                SchemaField("metadata", "object", required=True, description="Document metadata"),
-                SchemaField("semantic_tags", "object", required=True, description="Semantic tags"),
-                SchemaField("summary", "object", required=False, description="Document summary"),
-                SchemaField("relationships", "array", required=False, description="Section relationships"),
+                SchemaField("id", "string", True, "Unique section identifier"),
+                SchemaField("content", "string", True, "Content text"),
+                SchemaField("role", "string", True, "Semantic role"),
+                SchemaField("priority", "integer", True, "Priority level (1-10)"),
+                SchemaField("context", "object", False, "Context metadata"),
+                SchemaField("annotations", "array", False, "Semantic annotations"),
+            ],
+        )
+
+    @classmethod
+    def minimal(cls) -> "OutputSchema":
+        """
+        Create a minimal schema.
+
+        Returns:
+            Minimal schema instance.
+        """
+        return cls(
+            schema_type=SchemaType.MINIMAL,
+            description="Minimal schema with essential fields only",
+            fields=[
+                SchemaField("content", "string", True, "Content text"),
+                SchemaField("type", "string", True, "Content type"),
+            ],
+        )
+
+    @classmethod
+    def detailed(cls) -> "OutputSchema":
+        """
+        Create a detailed schema.
+
+        Returns:
+            Detailed schema instance.
+        """
+        return cls(
+            schema_type=SchemaType.DETAILED,
+            description="Detailed schema with full metadata",
+            fields=[
+                SchemaField("content", "string", True, "Main content text"),
+                SchemaField("type", "string", True, "Content type classification"),
+                SchemaField("level", "integer", False, "Hierarchy level"),
+                SchemaField("importance", "string", False, "Importance level"),
+                SchemaField("semantic_type", "string", False, "Semantic type"),
+                SchemaField("confidence", "float", False, "Confidence score"),
+                SchemaField("relationships", "array", False, "Related sections"),
+                SchemaField("metadata", "object", False, "Additional metadata"),
+                SchemaField("line_number", "integer", False, "Source line number"),
             ],
         )

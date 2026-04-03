@@ -1,589 +1,870 @@
-"""Document converter implementations."""
+"""
+PlaintextConverter - Heuristic-based structure inference for plain text.
+
+This converter applies various heuristic rules to infer document structure
+from plain text without explicit markup. It detects patterns like:
+- Headings (uppercase, numbered sections, etc.)
+- Lists (bullet points, numbered lists, markers)
+- Code blocks (fenced and unfenced)
+- Tables (pipe-delimited and alignment-based)
+- Blockquotes (indented text, quote markers)
+- Paragraphs (line break patterns)
+"""
 
 import re
-from typing import Any
+from dataclasses import dataclass, field
+from typing import Optional
+from datetime import datetime
 
-from bs4 import BeautifulSoup, NavigableString, Tag
-
-from .base import BaseConverter
-from .models import (
-    ContentClassification,
+from ai_readable_doc_generator.base import BaseConverter
+from ai_readable_doc_generator.models import (
     Document,
     DocumentMetadata,
-    ImportanceLevel,
     Section,
     SectionType,
+    ContentType,
+    Importance,
 )
 
 
-# Mapping of HTML tags to section types
-TAG_TO_SECTION_TYPE: dict[str, SectionType] = {
-    "html": SectionType.DOCUMENT,
-    "body": SectionType.DOCUMENT,
-    "article": SectionType.ARTICLE,
-    "main": SectionType.MAIN,
-    "section": SectionType.SECTION,
-    "nav": SectionType.NAVIGATION,
-    "aside": SectionType.ASIDE,
-    "header": SectionType.HEADER,
-    "footer": SectionType.FOOTER,
-    "h1": SectionType.HEADING,
-    "h2": SectionType.HEADING,
-    "h3": SectionType.HEADING,
-    "h4": SectionType.HEADING,
-    "h5": SectionType.HEADING,
-    "h6": SectionType.HEADING,
-    "p": SectionType.PARAGRAPH,
-    "ul": SectionType.LIST,
-    "ol": SectionType.LIST,
-    "li": SectionType.LIST_ITEM,
-    "pre": SectionType.CODE,
-    "code": SectionType.CODE,
-    "table": SectionType.TABLE,
-    "tr": SectionType.TABLE_ROW,
-    "th": SectionType.TABLE_CELL,
-    "td": SectionType.TABLE_CELL,
-    "blockquote": SectionType.BLOCKQUOTE,
-    "img": SectionType.IMAGE,
-    "a": SectionType.LINK,
-    "div": SectionType.DIVISION,
-    "span": SectionType.SPAN,
+@dataclass
+class PlaintextHeuristics:
+    """
+    Configuration for heuristic rules used in PlaintextConverter.
+
+    Attributes:
+        detect_shadows: Detect title case headings (Title Case with shadow words).
+        detect_allcaps: Detect ALL CAPS as potential headings.
+        detect_numbered_sections: Detect patterns like "1. Title" or "1.1 Title".
+        detect_underscore_headings: Detect underline headings (=== or ---).
+        detect_bullet_markers: Detect bullet points (-, *, +, •, etc.).
+        detect_numbered_lists: Detect numbered list patterns (1., 1), etc.).
+        detect_code_blocks: Detect code block patterns (fenced and indent-based).
+        detect_tables: Detect table structures (pipe-delimited, alignment).
+        detect_blockquotes: Detect blockquote patterns (>, |, etc.).
+        min_heading_length: Minimum length for inferred headings.
+        max_heading_length: Maximum length for inferred headings.
+        code_block_indent: Indentation level for code block detection.
+    """
+
+    detect_shadows: bool = True
+    detect_allcaps: bool = True
+    detect_numbered_sections: bool = True
+    detect_underscore_headings: bool = True
+    detect_bullet_markers: bool = True
+    detect_numbered_lists: bool = True
+    detect_code_blocks: bool = True
+    detect_tables: bool = True
+    detect_blockquotes: bool = True
+    min_heading_length: int = 3
+    max_heading_length: int = 120
+    code_block_indent: int = 4
+
+
+# Shadow words that indicate a heading when capitalized
+SHADOW_WORDS = {
+    "the", "and", "for", "are", "but", "not", "you", "all", "can",
+    "her", "was", "one", "our", "out", "day", "get", "has", "him",
+    "his", "how", "its", "may", "new", "now", "old", "see", "two",
+    "way", "who", "boy", "did", "own", "say", "she", "too", "use",
 }
 
-# Classification patterns for semantic tagging
-CLASSIFICATION_PATTERNS: dict[ContentClassification, list[str]] = {
-    ContentClassification.WARNING: [
-        "warning",
-        "alert",
-        "error",
-        "danger",
-        "caution",
-    ],
-    ContentClassification.NOTE: [
-        "note",
-        "info",
-        "tip",
-        "hint",
-        "info-box",
-    ],
-    ContentClassification.TUTORIAL: [
-        "tutorial",
-        "how-to",
-        "guide",
-        "walkthrough",
-    ],
-    ContentClassification.REFERENCE: [
-        "reference",
-        "api",
-        "docs",
-        "documentation",
-    ],
-    ContentClassification.CODE_LITERAL: [
-        "code",
-        "syntax",
-        "example",
-        "snippet",
-    ],
+# Common heading patterns
+HEADING_PATTERNS = {
+    "allcaps": re.compile(r"^[A-Z][A-Z\s]{5,}[A-Z]$"),
+    "title_shadow": re.compile(r"^[A-Z][a-z]*(?:[A-Z][a-z]*)+\s+(?:{})".format(
+        "|".join(SHADOW_WORDS)
+    )),
+    "numbered_section": re.compile(r"^\d+(?:\.\d+)*\.\s+.+"),
+    "numbered_parens": re.compile(r"^\d+\)\s+.+"),
+    "roman_numeral": re.compile(r"^[IVXLC]+\.\s+.+"),
+    "underline_eq": re.compile(r"^=+$"),
+    "underline_dash": re.compile(r"^-+$"),
+    "markdown_heading": re.compile(r"^#{1,6}\s+.+"),
 }
 
-# Importance level patterns
-IMPORTANCE_PATTERNS: dict[ImportanceLevel, list[str]] = {
-    ImportanceLevel.CRITICAL: ["critical", "important", "required"],
-    ImportanceLevel.HIGH: ["high", "primary", "main"],
-    ImportanceLevel.LOW: ["secondary", "optional", "extra"],
+# List marker patterns
+LIST_PATTERNS = {
+    "bullet": re.compile(r"^[\-\*\+•·]\s+"),
+    "numbered": re.compile(r"^\d+\.\s+"),
+    "numbered_parens": re.compile(r"^\d+\)\s+"),
+    "letter_bullet": re.compile(r"^[a-z]\)\s+"),
+    "letter_dot": re.compile(r"^[a-z]\.\s+"),
+    "check_box": re.compile(r"^\[[\s\-xX✓]\]\s*"),
+}
+
+# Code block patterns
+CODE_PATTERNS = {
+    "fenced_start": re.compile(r"^```(\w*)\s*$"),
+    "fenced_end": re.compile(r"^```\s*$"),
+    "indented": re.compile(r"^\s{4,}"),
+    "leading_whitespace": re.compile(r"^\s+"),
+}
+
+# Table patterns
+TABLE_PATTERNS = {
+    "pipe_delimited": re.compile(r"^\|.+\|\s*$"),
+    "alignment": re.compile(r"^\|?[\s\-:]+\|\s*$"),
+    "simple_table": re.compile(r"^\S+\s+\S+(\s+\S+)+\s*$"),
+}
+
+# Blockquote patterns
+BLOCKQUOTE_PATTERNS = {
+    "gt_marker": re.compile(r"^>\s*"),
+    "pipe_quote": re.compile(r"^\|\s*"),
+}
+
+# Semantic classification patterns
+SEMANTIC_PATTERNS = {
+    "note": re.compile(r"^(?:note:|NOTE:|Note:)\s*", re.IGNORECASE),
+    "warning": re.compile(r"^(?:warning:|WARNING:|Caution:|CAUTION:|⚠️?)\s*", re.IGNORECASE),
+    "tip": re.compile(r"^(?:tip:|TIP:|Tip:|💡)\s*", re.IGNORECASE),
+    "important": re.compile(r"^(?:important:|IMPORTANT:|Important:)\s*", re.IGNORECASE),
+    "question": re.compile(r"^(?:\?|Q:)\s*"),
+    "answer": re.compile(r"^(?:A:|Answer:)\s*"),
+    "definition": re.compile(r"^:\s+\w+"),
+    "citation": re.compile(r"^\[.*\]\(.*\)|^https?://"),
+    "code_ref": re.compile(r"`[^`]+`"),
 }
 
 
-class HtmlConverter(BaseConverter):
-    """Converter for HTML documents using BeautifulSoup4 with lxml parser.
+class PlaintextConverter(BaseConverter):
+    """
+    Converter that applies heuristic rules to infer structure from plain text.
 
-    Extracts semantic structure from HTML documents including:
-    - Semantic HTML5 elements (article, section, nav, aside, etc.)
-    - Headings with proper hierarchy levels
-    - Lists and nested list structures
-    - Code blocks and inline code
-    - Tables with header and data cells
-    - Links and images
-    - Semantic classes and IDs for classification
+    This converter analyzes text patterns to detect document structure elements
+    like headings, lists, code blocks, tables, and semantic content types.
+
+    Example:
+        >>> converter = PlaintextConverter()
+        >>> content = "Introduction\\n\\nThis is a paragraph.\\n\\n1. First item\\n2. Second item"
+        >>> doc = converter.convert(content)
+        >>> print(len(doc.sections))
+        3
     """
 
     def __init__(
         self,
-        extract_scripts: bool = False,
-        extract_styles: bool = False,
-        ignore_hidden: bool = True,
+        heuristics: Optional[PlaintextHeuristics] = None,
+        schema: Optional["OutputSchema"] = None,
+        options: Optional[dict] = None,
     ) -> None:
-        """Initialize HTML converter.
-
-        Args:
-            extract_scripts: Whether to extract script content.
-            extract_styles: Whether to extract style content.
-            ignore_hidden: Whether to ignore hidden elements.
         """
-        self.extract_scripts = extract_scripts
-        self.extract_styles = extract_styles
-        self.ignore_hidden = ignore_hidden
-
-    def validate(self, source: str) -> bool:
-        """Validate if source contains valid HTML.
+        Initialize the PlaintextConverter.
 
         Args:
-            source: The HTML source to validate.
+            heuristics: Heuristic configuration. Uses defaults if not provided.
+            schema: Output schema to use.
+            options: Additional conversion options.
+        """
+        super().__init__(schema, options)
+        self.heuristics = heuristics or PlaintextHeuristics()
+
+    def convert(self, content: str, source_path: str = "") -> Document:
+        """
+        Convert plain text content to a structured Document.
+
+        Args:
+            content: Raw plain text content.
+            source_path: Optional source file path.
 
         Returns:
-            bool: True if valid HTML, False otherwise.
+            Structured Document with inferred sections and metadata.
         """
-        try:
-            soup = BeautifulSoup(source, "lxml")
-            return soup.find() is not None
-        except Exception:
-            return False
+        if not self.validate_content(content):
+            return Document()
 
-    def convert(self, source: str) -> Document:
-        """Convert HTML source to Document.
+        lines = content.split("\n")
+        sections = self._parse_lines(lines)
 
-        Args:
-            source: The HTML source content.
+        metadata = self._extract_metadata(content, source_path)
+        document = Document(metadata=metadata, sections=sections, raw_content=content)
 
-        Returns:
-            Document: The converted document with semantic structure.
-        """
-        soup = BeautifulSoup(source, "lxml")
-
-        # Extract metadata
-        metadata = self._extract_metadata(soup)
-
-        # Build document structure
-        sections = self._extract_sections(soup.body if soup.body else soup)
-
-        # Create document
-        document = Document(
-            content=self._extract_text_content(soup),
-            metadata=metadata,
-            sections=sections,
-            raw_content=source,
-        )
-
-        return self.postprocess(document)
-
-    def preprocess(self, source: str) -> str:
-        """Preprocess HTML source.
-
-        Args:
-            source: The raw HTML source.
-
-        Returns:
-            str: Preprocessed HTML.
-        """
-        # Normalize whitespace
-        source = re.sub(r"\s+", " ", source)
-        return source
-
-    def postprocess(self, document: Document) -> Document:
-        """Postprocess converted document.
-
-        Args:
-            document: The converted document.
-
-        Returns:
-            Document: Postprocessed document.
-        """
-        # Flatten empty sections
-        document.sections = self._flatten_empty_sections(document.sections)
         return document
 
-    def _extract_metadata(self, soup: BeautifulSoup) -> DocumentMetadata:
-        """Extract metadata from HTML document.
-
-        Args:
-            soup: Parsed BeautifulSoup object.
-
-        Returns:
-            DocumentMetadata: Extracted metadata.
+    def parse(self, content: str) -> Document:
         """
-        metadata = DocumentMetadata()
-        metadata.source_type = "html"
-
-        # Extract title
-        title_tag = soup.find("title")
-        if title_tag:
-            metadata.title = self._get_text(title_tag)
-
-        # Extract meta tags
-        for meta in soup.find_all("meta"):
-            name = meta.get("name", "")
-            property_attr = meta.get("property", "")
-            content = meta.get("content", "")
-
-            if name == "description" or property_attr == "og:description":
-                metadata.description = content
-            elif name == "author":
-                metadata.author = content
-            elif name == "keywords":
-                metadata.tags = [k.strip() for k in content.split(",")]
-            elif property_attr == "og:title":
-                metadata.title = metadata.title or content
-
-        # Extract language
-        html_tag = soup.find("html")
-        if html_tag and html_tag.get("lang"):
-            metadata.language = html_tag.get("lang")
-
-        return metadata
-
-    def _extract_sections(self, element: Tag | NavigableString) -> list[Section]:
-        """Extract sections from HTML element recursively.
+        Parse content into sections with basic structure inference.
 
         Args:
-            element: BeautifulSoup element to process.
+            content: Raw plain text content.
 
         Returns:
-            list[Section]: List of extracted sections.
+            Parsed Document with sections.
+        """
+        return self.convert(content)
+
+    def _parse_lines(self, lines: list[str]) -> list[Section]:
+        """
+        Parse lines into sections using heuristic rules.
+
+        Args:
+            lines: List of content lines.
+
+        Returns:
+            List of parsed Section objects.
         """
         sections = []
+        current_paragraph_lines = []
+        in_code_block = False
+        code_block_lines = []
+        code_block_lang = ""
+        current_list_items: list[str] = []
+        current_list_type: Optional[str] = None
 
-        if isinstance(element, NavigableString):
-            text = str(element).strip()
-            if text:
-                return [
-                    Section(
-                        section_type=SectionType.PARAGRAPH,
-                        content=text,
-                        classification=self._classify_content(text),
-                    )
-                ]
-            return []
+        def _flush_paragraph() -> Optional[Section]:
+            """Flush accumulated paragraph lines into a section."""
+            nonlocal current_paragraph_lines
+            if not current_paragraph_lines:
+                return None
+            content = " ".join(current_paragraph_lines).strip()
+            current_paragraph_lines = []
+            if not content:
+                return None
+            section = self._create_paragraph_section(content)
+            return section
 
-        if not isinstance(element, Tag):
-            return []
+        def _flush_list() -> Optional[Section]:
+            """Flush accumulated list items into a list section."""
+            nonlocal current_list_items, current_list_type
+            if not current_list_items:
+                return None
+            section = self._create_list_section(current_list_items, current_list_type or "bullet")
+            current_list_items = []
+            current_list_type = None
+            return section
 
-        # Skip hidden elements if configured
-        if self.ignore_hidden and self._is_hidden(element):
-            return []
+        for i, line in enumerate(lines):
+            # Handle code blocks
+            if self.heuristics.detect_code_blocks:
+                fenced_match = CODE_PATTERNS["fenced_start"].match(line)
+                if fenced_match:
+                    if not in_code_block:
+                        # Flush pending content
+                        para = _flush_paragraph()
+                        if para:
+                            sections.append(para)
+                        lst = _flush_list()
+                        if lst:
+                            sections.append(lst)
+                        in_code_block = True
+                        code_block_lang = fenced_match.group(1) or ""
+                        code_block_lines = []
+                        continue
+                    else:
+                        # End code block
+                        in_code_block = False
+                        sections.append(self._create_code_section(code_block_lines, code_block_lang))
+                        code_block_lines = []
+                        code_block_lang = ""
+                        continue
 
-        # Skip script and style elements unless configured
-        tag_name = element.name.lower()
-        if tag_name == "script" and not self.extract_scripts:
-            return []
-        if tag_name == "style" and not self.extract_styles:
-            return []
-
-        # Determine section type
-        section_type = self._get_section_type(element)
-
-        # Handle heading elements
-        level = self._get_heading_level(element)
-
-        # Get element content
-        content = self._get_element_content(element)
-
-        # Skip empty structural elements that have children
-        if not content.strip() and self._has_meaningful_children(element):
-            # Process children instead
-            for child in element.children:
-                child_sections = self._extract_sections(child)
-                sections.extend(child_sections)
-            return sections
-
-        # Create section
-        section = Section(
-            section_type=section_type,
-            content=content,
-            level=level,
-            metadata=self._extract_element_metadata(element),
-            classification=self._classify_element(element),
-            importance=self._determine_importance(element),
-            id=element.get("id"),
-            classes=self._get_classes(element),
-            raw_attributes=self._get_raw_attributes(element),
-        )
-
-        # Process children recursively
-        for child in element.children:
-            if isinstance(child, Tag):
-                # Skip if this is a self-closing element we're already handling
-                if child.name in ("img", "br", "hr", "input", "meta", "link"):
+                if in_code_block:
+                    code_block_lines.append(line)
                     continue
-                child_sections = self._extract_sections(child)
-                for child_section in child_sections:
-                    section.add_child(child_section)
 
-        sections.append(section)
+            # Handle indented code blocks
+            if self.heuristics.detect_code_blocks and CODE_PATTERNS["indented"].match(line):
+                para = _flush_paragraph()
+                if para:
+                    sections.append(para)
+                lst = _flush_list()
+                if lst:
+                    sections.append(lst)
+                # Collect all indented lines
+                j = i
+                indented_lines = []
+                while j < len(lines) and CODE_PATTERNS["indented"].match(lines[j]):
+                    indented_lines.append(lines[j])
+                    j += 1
+                sections.append(self._create_code_section(indented_lines, ""))
+                continue
+
+            # Handle headings
+            heading_result = self._detect_heading(line)
+            if heading_result:
+                para = _flush_paragraph()
+                if para:
+                    sections.append(para)
+                lst = _flush_list()
+                if lst:
+                    sections.append(lst)
+                sections.append(heading_result)
+                continue
+
+            # Handle underline headings
+            if i > 0 and i < len(lines) - 1:
+                underline_result = self._detect_underline_heading(lines[i - 1], line, lines[i + 1])
+                if underline_result:
+                    # Replace the previous paragraph-like section
+                    if sections and sections[-1].section_type == SectionType.PARAGRAPH:
+                        sections[-1] = underline_result
+                        continue
+
+            # Handle lists
+            list_result = self._detect_list_item(line)
+            if list_result:
+                list_type = list_result[1]
+                if current_list_type == list_type:
+                    current_list_items.append(list_result[0])
+                else:
+                    lst = _flush_list()
+                    if lst:
+                        sections.append(lst)
+                    current_list_type = list_type
+                    current_list_items = [list_result[0]]
+                continue
+            else:
+                lst = _flush_list()
+                if lst:
+                    sections.append(lst)
+
+            # Handle tables
+            if self.heuristics.detect_tables:
+                table_lines = self._detect_table(lines, i)
+                if table_lines:
+                    para = _flush_paragraph()
+                    if para:
+                        sections.append(para)
+                    sections.append(self._create_table_section(table_lines))
+                    i += len(table_lines) - 1
+                    continue
+
+            # Handle blockquotes
+            if self.heuristics.detect_blockquotes:
+                bq_result = self._detect_blockquote(line)
+                if bq_result:
+                    para = _flush_paragraph()
+                    if para:
+                        sections.append(para)
+                    sections.append(bq_result)
+                    continue
+
+            # Handle empty lines and paragraphs
+            if not line.strip():
+                para = _flush_paragraph()
+                if para:
+                    sections.append(para)
+            else:
+                current_paragraph_lines.append(line.strip())
+
+        # Flush remaining content
+        para = _flush_paragraph()
+        if para:
+            sections.append(para)
+        lst = _flush_list()
+        if lst:
+            sections.append(lst)
+
+        # Apply semantic classification to all sections
+        sections = self._classify_semantics(sections)
+
         return sections
 
-    def _get_section_type(self, element: Tag) -> SectionType:
-        """Get section type for HTML element.
+    def _detect_heading(self, line: str) -> Optional[Section]:
+        """
+        Detect if a line is a heading using heuristic patterns.
 
         Args:
-            element: HTML element.
+            line: Line to analyze.
 
         Returns:
-            SectionType: Corresponding section type.
+            Section if heading detected, None otherwise.
         """
-        tag_name = element.name.lower()
+        stripped = line.strip()
+        if not stripped:
+            return None
 
-        if tag_name in TAG_TO_SECTION_TYPE:
-            return TAG_TO_SECTION_TYPE[tag_name]
+        # Check length constraints
+        if len(stripped) < self.heuristics.min_heading_length:
+            return None
+        if len(stripped) > self.heuristics.max_heading_length:
+            return None
 
-        # Check class for semantic hints
-        classes = self._get_classes(element)
-        for cls in classes:
-            cls_lower = cls.lower()
-            for sec_type, patterns in TAG_TO_SECTION_TYPE.items():
-                if cls_lower in patterns if isinstance(patterns, list) else False:
-                    return sec_type
+        # Check numbered sections (1. Title, 1.1 Title, etc.)
+        if self.heuristics.detect_numbered_sections:
+            if HEADING_PATTERNS["numbered_section"].match(stripped):
+                level = stripped.split(".").__len__() - 1
+                level = min(level, 6)
+                return Section(
+                    content=re.sub(r"^\d+(?:\.\d+)*\.\s*", "", stripped),
+                    section_type=SectionType.HEADING,
+                    content_type=self._classify_heading_type(stripped),
+                    level=level,
+                    importance=self._infer_heading_importance(level),
+                    raw_text=line,
+                )
+            if HEADING_PATTERNS["numbered_parens"].match(stripped):
+                return Section(
+                    content=re.sub(r"^\d+\)\s*", "", stripped),
+                    section_type=SectionType.HEADING,
+                    content_type=self._classify_heading_type(stripped),
+                    level=1,
+                    importance=Importance.HIGH,
+                    raw_text=line,
+                )
 
-        return SectionType.UNKNOWN
+        # Check ALL CAPS headings
+        if self.heuristics.detect_allcaps:
+            if HEADING_PATTERNS["allcaps"].match(stripped):
+                # Exclude lines that look like abbreviations or short caps
+                if len(stripped) >= 10:
+                    return Section(
+                        content=stripped,
+                        section_type=SectionType.HEADING,
+                        content_type=ContentType.HEADING_1,
+                        level=1,
+                        importance=Importance.HIGH,
+                        raw_text=line,
+                    )
 
-    def _get_heading_level(self, element: Tag) -> int:
-        """Get heading level for heading elements.
+        # Check shadow title headings (Title Case with shadow words)
+        if self.heuristics.detect_shadows:
+            if HEADING_PATTERNS["title_shadow"].match(stripped):
+                # Ensure at least one non-shadow word capitalized
+                words = stripped.split()
+                capitalized_non_shadow = any(
+                    w.rstrip(",.:").istitle() and w.lower().rstrip(",.:") not in SHADOW_WORDS
+                    for w in words
+                )
+                if capitalized_non_shadow:
+                    return Section(
+                        content=stripped,
+                        section_type=SectionType.HEADING,
+                        content_type=self._classify_heading_type(stripped),
+                        level=self._infer_heading_level(stripped),
+                        importance=Importance.MEDIUM,
+                        raw_text=line,
+                    )
+
+        # Check short uppercase lines (SHORTCUT style)
+        if self.heuristics.detect_allcaps:
+            if re.match(r"^[A-Z]{2,}(?:\s+[A-Z]{2,})*$", stripped) and len(stripped) <= 30:
+                return Section(
+                    content=stripped,
+                    section_type=SectionType.HEADING,
+                    content_type=self._classify_heading_type(stripped),
+                    level=self._infer_heading_level(stripped),
+                    importance=Importance.MEDIUM,
+                    raw_text=line,
+                )
+
+        return None
+
+    def _detect_underline_heading(
+        self, line_above: str, underline: str, line_below: str
+    ) -> Optional[Section]:
+        """
+        Detect underline headings (=== or ---).
 
         Args:
-            element: HTML element.
+            line_above: Line above the underline.
+            underline: The underline line.
+            line_below: Line below the underline.
 
         Returns:
-            int: Heading level (1-6) or 1 for non-headings.
+            Section if underline heading detected, None otherwise.
         """
-        tag_name = element.name.lower()
-        if tag_name in ("h1", "h2", "h3", "h4", "h5", "h6"):
-            return int(tag_name[1])
-        return 1
+        if not self.heuristics.detect_underscore_headings:
+            return None
 
-    def _get_element_content(self, element: Tag) -> str:
-        """Get text content of element.
+        if not line_above.strip():
+            return None
+
+        if HEADING_PATTERNS["underline_eq"].match(underline.strip()):
+            return Section(
+                content=line_above.strip(),
+                section_type=SectionType.HEADING,
+                content_type=ContentType.HEADING_1,
+                level=1,
+                importance=Importance.HIGH,
+                raw_text=f"{line_above}\n{underline}",
+            )
+
+        if HEADING_PATTERNS["underline_dash"].match(underline.strip()):
+            return Section(
+                content=line_above.strip(),
+                section_type=SectionType.HEADING,
+                content_type=ContentType.HEADING_2,
+                level=2,
+                importance=Importance.MEDIUM,
+                raw_text=f"{line_above}\n{underline}",
+            )
+
+        return None
+
+    def _detect_list_item(self, line: str) -> Optional[tuple[str, str]]:
+        """
+        Detect if a line is a list item.
 
         Args:
-            element: HTML element.
+            line: Line to analyze.
 
         Returns:
-            str: Text content.
+            Tuple of (content, list_type) if detected, None otherwise.
         """
-        # Special handling for code blocks
-        if element.name in ("pre", "code"):
-            return element.get_text()
+        stripped = line.strip()
+        if not stripped:
+            return None
 
-        # For other elements, get text without extra whitespace
-        return " ".join(element.get_text().split())
+        # Check bullet markers
+        if self.heuristics.detect_bullet_markers:
+            for name, pattern in LIST_PATTERNS.items():
+                match = pattern.match(stripped)
+                if match:
+                    content = stripped[match.end():].strip()
+                    return (content, name)
 
-    def _get_text(self, element: Tag | NavigableString) -> str:
-        """Get text content of element.
+        return None
+
+    def _detect_table(self, lines: list[str], start_idx: int) -> Optional[list[str]]:
+        """
+        Detect a table structure starting at given index.
 
         Args:
-            element: BeautifulSoup element.
+            lines: All lines.
+            start_idx: Starting index.
 
         Returns:
-            str: Text content.
+            List of table lines if detected, None otherwise.
         """
-        if isinstance(element, NavigableString):
-            return str(element).strip()
-        return element.get_text().strip()
+        if not self.heuristics.detect_tables:
+            return None
 
-    def _has_meaningful_children(self, element: Tag) -> bool:
-        """Check if element has meaningful children.
+        if start_idx >= len(lines):
+            return None
+
+        line = lines[start_idx]
+        stripped = line.strip()
+
+        # Check for pipe-delimited first row
+        if not TABLE_PATTERNS["pipe_delimited"].match(stripped):
+            return None
+
+        table_lines = [stripped]
+        i = start_idx + 1
+
+        # Look for header separator row
+        if i < len(lines) and TABLE_PATTERNS["alignment"].match(lines[i].strip()):
+            table_lines.append(lines[i].strip())
+            i += 1
+
+        # Look for data rows
+        while i < len(lines):
+            next_line = lines[i].strip()
+            if not next_line:
+                break
+            if TABLE_PATTERNS["pipe_delimited"].match(next_line):
+                table_lines.append(next_line)
+                i += 1
+            elif TABLE_PATTERNS["alignment"].match(next_line):
+                # Alignment row at end of table
+                table_lines.append(next_line)
+                break
+            else:
+                break
+
+        # Valid table should have at least 2 rows
+        if len(table_lines) >= 2:
+            return table_lines
+
+        return None
+
+    def _detect_blockquote(self, line: str) -> Optional[Section]:
+        """
+        Detect if a line is a blockquote.
 
         Args:
-            element: HTML element.
+            line: Line to analyze.
 
         Returns:
-            bool: True if has meaningful children.
+            Section if blockquote detected, None otherwise.
         """
-        for child in element.children:
-            if isinstance(child, Tag):
-                if child.name not in ("script", "style", "meta", "link"):
-                    return True
-            elif isinstance(child, NavigableString):
-                if str(child).strip():
-                    return True
-        return False
+        stripped = line.strip()
+        if not stripped:
+            return None
 
-    def _is_hidden(self, element: Tag) -> bool:
-        """Check if element is hidden.
+        for name, pattern in BLOCKQUOTE_PATTERNS.items():
+            match = pattern.match(stripped)
+            if match:
+                content = stripped[match.end():].strip()
+                return Section(
+                    content=content,
+                    section_type=SectionType.BLOCKQUOTE,
+                    content_type=ContentType.CITATION,
+                    importance=Importance.LOW,
+                    raw_text=line,
+                )
+
+        return None
+
+    def _create_paragraph_section(self, content: str) -> Section:
+        """
+        Create a paragraph section.
 
         Args:
-            element: HTML element.
+            content: Paragraph content.
 
         Returns:
-            bool: True if hidden.
+            Section for the paragraph.
         """
-        style = element.get("style", "")
-        if "display:none" in style or "visibility:hidden" in style:
-            return True
+        semantic_type = self._classify_paragraph_semantics(content)
+        return Section(
+            content=content,
+            section_type=SectionType.PARAGRAPH,
+            content_type=semantic_type,
+            importance=self._infer_paragraph_importance(semantic_type),
+        )
 
-        classes = self._get_classes(element)
-        if "hidden" in classes or "sr-only" in classes:
-            return True
-
-        return False
-
-    def _extract_element_metadata(self, element: Tag) -> dict[str, Any]:
-        """Extract metadata from element.
+    def _create_list_section(self, items: list[str], list_type: str) -> Section:
+        """
+        Create a list section from items.
 
         Args:
-            element: HTML element.
+            items: List item contents.
+            list_type: Type of list (bullet, numbered, etc.).
 
         Returns:
-            dict: Element metadata.
+            Section for the list.
         """
-        metadata: dict[str, Any] = {}
+        list_content = "\n".join(f"- {item}" for item in items)
+        return Section(
+            content=list_content,
+            section_type=SectionType.LIST,
+            content_type=ContentType.LIST_ITEM,
+            metadata={"list_type": list_type, "item_count": len(items)},
+        )
 
-        # Extract common attributes
-        if element.get("id"):
-            metadata["html_id"] = element.get("id")
-        if element.get("class"):
-            metadata["html_classes"] = element.get("class")
-        if element.get("title"):
-            metadata["title"] = element.get("title")
-        if element.get("alt"):
-            metadata["alt"] = element.get("alt")
-
-        # Extract data attributes
-        for attr, value in element.attrs.items():
-            if attr.startswith("data-"):
-                metadata[attr] = value
-
-        return metadata
-
-    def _classify_element(self, element: Tag) -> ContentClassification:
-        """Classify element content.
+    def _create_code_section(self, lines: list[str], language: str) -> Section:
+        """
+        Create a code block section.
 
         Args:
-            element: HTML element.
+            lines: Code block lines.
+            language: Programming language (if detected).
 
         Returns:
-            ContentClassification: Content classification.
+            Section for the code block.
         """
-        classes = self._get_classes(element)
-        element_id = element.get("id", "").lower()
+        # Remove leading indentation if present
+        content = "\n".join(lines)
+        return Section(
+            content=content,
+            section_type=SectionType.CODE_BLOCK,
+            content_type=ContentType.CODE_EXAMPLE,
+            importance=Importance.MEDIUM,
+            metadata={"language": language} if language else {},
+            raw_text=content,
+        )
 
-        # Check class patterns
-        for classification, patterns in CLASSIFICATION_PATTERNS.items():
-            for pattern in patterns:
-                if pattern in classes or pattern in element_id:
-                    return classification
-
-        # Infer from element type
-        if element.name in ("pre", "code"):
-            return ContentClassification.CODE_LITERAL
-        if element.name in ("script", "style", "meta"):
-            return ContentClassification.METADATA
-        if element.name == "nav":
-            return ContentClassification.NAVIGATION
-
-        # Check for semantic class names
-        class_str = " ".join(classes).lower()
-        if any(word in class_str for word in ["warning", "alert", "error"]):
-            return ContentClassification.WARNING
-        if any(word in class_str for word in ["note", "info", "tip"]):
-            return ContentClassification.NOTE
-
-        return ContentClassification.UNKNOWN
-
-    def _classify_content(self, content: str) -> ContentClassification:
-        """Classify text content.
+    def _create_table_section(self, lines: list[str]) -> Section:
+        """
+        Create a table section.
 
         Args:
-            content: Text content.
+            lines: Table lines including header and separator.
 
         Returns:
-            ContentClassification: Content classification.
+            Section for the table.
         """
-        content_lower = content.lower()
+        content = "\n".join(lines)
+        # Count columns from first row
+        first_row_cols = len([c.strip() for c in lines[0].split("|") if c.strip()])
+        return Section(
+            content=content,
+            section_type=SectionType.TABLE,
+            content_type=ContentType.UNCLASSIFIED,
+            importance=Importance.MEDIUM,
+            metadata={"columns": first_row_cols, "rows": len(lines)},
+            raw_text=content,
+        )
 
-        if any(word in content_lower for word in ["warning:", "caution:", "danger:"]):
-            return ContentClassification.WARNING
-        if any(word in content_lower for word in ["note:", "tip:", "info:"]):
-            return ContentClassification.NOTE
-
-        return ContentClassification.UNKNOWN
-
-    def _determine_importance(self, element: Tag) -> ImportanceLevel:
-        """Determine importance level of element.
+    def _classify_heading_type(self, heading: str) -> ContentType:
+        """
+        Classify the type of heading based on content.
 
         Args:
-            element: HTML element.
+            heading: Heading text.
 
         Returns:
-            ImportanceLevel: Importance level.
+            ContentType classification.
         """
-        classes = self._get_classes(element)
-        element_id = element.get("id", "").lower()
-        class_str = " ".join(classes + [element_id]).lower()
+        lower = heading.lower()
 
-        # Check for importance indicators
-        for level, patterns in IMPORTANCE_PATTERNS.items():
-            for pattern in patterns:
-                if pattern in class_str:
-                    return level
+        # Check for common heading types
+        if any(word in lower for word in ["introduction", "overview", "summary"]):
+            return ContentType.INTRODUCTION
+        if any(word in lower for word in ["conclusion", "summary", "wrap-up"]):
+            return ContentType.CONCLUSION
+        if any(word in lower for word in ["example", "examples"]):
+            return ContentType.CODE_EXAMPLE
+        if any(word in lower for word in ["note", "warning", "tip", "caution"]):
+            return ContentType.NOTE
+        if lower.endswith("?") or lower.startswith("how") or lower.startswith("what"):
+            return ContentType.QUESTION
+        if any(word in lower for word in ["definition", "term"]):
+            return ContentType.DEFINITION
 
-        # Heading levels indicate importance
-        if element.name in ("h1", "h2"):
-            return ImportanceLevel.HIGH
-        if element.name in ("h3", "h4"):
-            return ImportanceLevel.MEDIUM
+        return ContentType.BODY
 
-        return ImportanceLevel.MEDIUM
-
-    def _get_classes(self, element: Tag) -> list[str]:
-        """Get CSS classes from element.
+    def _classify_paragraph_semantics(self, content: str) -> ContentType:
+        """
+        Classify semantic type of a paragraph.
 
         Args:
-            element: HTML element.
+            content: Paragraph content.
 
         Returns:
-            list[str]: List of class names.
+            ContentType classification.
         """
-        class_attr = element.get("class", [])
-        if isinstance(class_attr, str):
-            return class_attr.split()
-        return list(class_attr)
+        for semantic_name, pattern in SEMANTIC_PATTERNS.items():
+            if pattern.search(content):
+                mapping = {
+                    "note": ContentType.NOTE,
+                    "warning": ContentType.WARNING,
+                    "tip": ContentType.TIP,
+                    "important": ContentType.NOTE,
+                    "question": ContentType.QUESTION,
+                    "answer": ContentType.ANSWER,
+                    "definition": ContentType.DEFINITION,
+                    "citation": ContentType.CITATION,
+                }
+                return mapping.get(semantic_name, ContentType.UNCLASSIFIED)
 
-    def _get_raw_attributes(self, element: Tag) -> dict[str, str]:
-        """Get raw attributes from element.
+        return ContentType.BODY
+
+    def _infer_heading_level(self, heading: str) -> int:
+        """
+        Infer heading level from formatting.
 
         Args:
-            element: HTML element.
+            heading: Heading text.
 
         Returns:
-            dict: Raw attributes.
+            Heading level (1-6).
         """
-        return {k: str(v) for k, v in element.attrs.items()}
+        if len(heading) < 20:
+            return 1
+        if len(heading) < 40:
+            return 2
+        return 3
 
-    def _extract_text_content(self, soup: BeautifulSoup) -> str:
-        """Extract plain text content from document.
+    def _infer_heading_importance(self, level: int) -> Importance:
+        """
+        Infer importance from heading level.
 
         Args:
-            soup: Parsed BeautifulSoup object.
+            level: Heading level.
 
         Returns:
-            str: Plain text content.
+            Importance level.
         """
-        # Remove script and style elements
-        for script in soup(["script", "style"]):
-            script.decompose()
+        if level == 1:
+            return Importance.CRITICAL
+        if level == 2:
+            return Importance.HIGH
+        return Importance.MEDIUM
 
-        return soup.get_text(separator=" ", strip=True)
-
-    def _flatten_empty_sections(self, sections: list[Section]) -> list[Section]:
-        """Remove or flatten empty sections.
+    def _infer_paragraph_importance(self, content_type: ContentType) -> Importance:
+        """
+        Infer importance from paragraph content type.
 
         Args:
-            sections: List of sections.
+            content_type: Content type classification.
 
         Returns:
-            list[Section]: Flattened sections.
+            Importance level.
         """
-        result = []
+        high_importance_types = {
+            ContentType.WARNING,
+            ContentType.IMPORTANT,
+            ContentType.QUESTION,
+        }
+        medium_importance_types = {
+            ContentType.NOTE,
+            ContentType.TIP,
+            ContentType.DEFINITION,
+            ContentType.CODE_EXAMPLE,
+        }
+
+        if content_type in high_importance_types:
+            return Importance.HIGH
+        if content_type in medium_importance_types:
+            return Importance.MEDIUM
+        return Importance.LOW
+
+    def _classify_semantics(self, sections: list[Section]) -> list[Section]:
+        """
+        Apply semantic classification to all sections.
+
+        Args:
+            sections: List of sections to classify.
+
+        Returns:
+            Classified sections.
+        """
+        # Track context for better classification
+        context_stack = []
 
         for section in sections:
-            # Recursively flatten children
-            section.children = self._flatten_empty_sections(section.children)
+            if section.section_type == SectionType.HEADING:
+                # Update context based on heading
+                context_stack = context_stack[: section.level]
+                context_stack.append(section.content)
 
-            # Keep section if it has content or children
-            if section.content.strip() or section.children:
-                # If section has children and no content, transfer children to result
-                if not section.content.strip() and section.children:
-                    result.extend(section.children)
-                else:
-                    result.append(section)
+            elif section.section_type == SectionType.PARAGRAPH:
+                # Enhance classification based on context
+                if context_stack:
+                    context_text = " ".join(context_stack).lower()
+                    if "example" in context_text:
+                        section.content_type = ContentType.CODE_EXAMPLE
+                    elif "note" in context_text or "warning" in context_text:
+                        section.content_type = ContentType.NOTE
 
-        return result
+        return sections
+
+    def _extract_metadata(self, content: str, source_path: str) -> DocumentMetadata:
+        """
+        Extract metadata from content.
+
+        Args:
+            content: Full document content.
+            source_path: Source file path.
+
+        Returns:
+            DocumentMetadata instance.
+        """
+        lines = content.split("\n")
+        word_count = len(content.split())
+        line_count = len(lines)
+
+        # Try to extract title from first heading
+        title = ""
+        for line in lines[:10]:  # Check first 10 lines
+            heading = self._detect_heading(line)
+            if heading and heading.content:
+                title = heading.content
+                break
+
+        # Extract tags from common patterns
+        tags = []
+        tag_pattern = re.compile(r"^\s*tags?\s*:\s*(.+)$", re.IGNORECASE)
+        for line in lines[:20]:
+            match = tag_pattern.match(line)
+            if match:
+                tags = [t.strip() for t in match.group(1).split(",")]
+                break
+
+        return DocumentMetadata(
+            title=title,
+            source_path=source_path,
+            source_format="plaintext",
+            word_count=word_count,
+            line_count=line_count,
+            tags=tags,
+            created_at=datetime.now(),
+        )
+
+
+# Export the converter class
+__all__ = ["PlaintextConverter", "PlaintextHeuristics"]

@@ -1,361 +1,206 @@
-"""
-Semantic Tagger Plugin for AI-Readable Document Generator.
+"""Semantic tagger plugin for enhanced content classification."""
 
-This plugin provides semantic tagging functionality to add machine-readable
-semantic markers (content types, relationships, importance indicators) to document sections.
-"""
+import re
+from typing import Optional
 
-from __future__ import annotations
-
-from dataclasses import dataclass, field
-from enum import Enum
-from typing import Any
+from ai_readable_doc_generator.models import Section, SectionType, ContentType
 
 
-class ContentType(Enum):
-    """Enumeration of content types for semantic tagging."""
-    
-    TEXT = "text"
-    CODE = "code"
-    HEADING = "heading"
-    LIST = "list"
-    TABLE = "table"
-    IMAGE = "image"
-    LINK = "link"
-    BLOCKQUOTE = "blockquote"
-    CALLout = "callout"
-    MATH = "math"
-    DIAGRAM = "diagram"
-    UNKNOWN = "unknown"
-
-
-class ImportanceLevel(Enum):
-    """Importance levels for content prioritization."""
-    
-    CRITICAL = "critical"  # Essential information, must not be lost
-    HIGH = "high"          # Important content that should be preserved
-    MEDIUM = "medium"      # Standard content
-    LOW = "low"            # Supplementary or decorative content
-
-
-class SectionRelationship(Enum):
-    """Types of relationships between document sections."""
-    
-    PARENT = "parent"
-    CHILD = "child"
-    SIBLING = "sibling"
-    PRECEDES = "precedes"
-    FOLLOWS = "follows"
-    REFERENCES = "references"
-    NONE = "none"
-
-
-@dataclass
-class SemanticTag:
+class SemanticTagger:
     """
-    Represents a semantic tag applied to a piece of content.
-    
-    Attributes:
-        name: The name/type of the semantic tag.
-        value: The value or content of the tag.
-        confidence: Confidence score (0.0 to 1.0) for the tag assignment.
-        metadata: Additional metadata associated with the tag.
-    """
-    
-    name: str
-    value: str
-    confidence: float = 1.0
-    metadata: dict[str, Any] = field(default_factory=dict)
-    
-    def to_dict(self) -> dict[str, Any]:
-        """Convert the semantic tag to a dictionary."""
-        return {
-            "name": self.name,
-            "value": self.value,
-            "confidence": self.confidence,
-            "metadata": self.metadata,
-        }
+    Plugin for enhanced semantic tagging of document sections.
 
+    This tagger applies advanced heuristics to classify content types
+    and add semantic annotations to sections.
+    """
 
-@dataclass
-class TaggedContent:
-    """
-    Represents a piece of content with semantic tags.
-    
-    Attributes:
-        content: The actual content text.
-        content_type: The type of content.
-        importance: The importance level of the content.
-        tags: List of semantic tags applied to this content.
-        relationships: List of relationships to other content.
-        position: Position information (line number, etc.).
-    """
-    
-    content: str
-    content_type: ContentType = ContentType.TEXT
-    importance: ImportanceLevel = ImportanceLevel.MEDIUM
-    tags: list[SemanticTag] = field(default_factory=list)
-    relationships: list[tuple[str, SectionRelationship]] = field(default_factory=list)
-    position: dict[str, int] = field(default_factory=dict)
-    
-    def add_tag(self, name: str, value: str, confidence: float = 1.0, **metadata: Any) -> None:
-        """Add a semantic tag to this content."""
-        tag = SemanticTag(name=name, value=value, confidence=confidence, metadata=metadata)
-        self.tags.append(tag)
-    
-    def add_relationship(self, target_id: str, relationship: SectionRelationship) -> None:
-        """Add a relationship to another piece of content."""
-        self.relationships.append((target_id, relationship))
-    
-    def to_dict(self) -> dict[str, Any]:
-        """Convert the tagged content to a dictionary."""
-        return {
-            "content": self.content,
-            "content_type": self.content_type.value,
-            "importance": self.importance.value,
-            "tags": [tag.to_dict() for tag in self.tags],
-            "relationships": [
-                {"target": target, "relationship": rel.value}
-                for target, rel in self.relationships
-            ],
-            "position": self.position,
-        }
+    # Pattern-based semantic classifiers
+    SEMANTIC_PATTERNS = {
+        ContentType.NOTE: [
+            re.compile(r"^(?:note:|NOTE:|Note:)\s*", re.IGNORECASE),
+            re.compile(r"ℹ️?\s*"),
+        ],
+        ContentType.WARNING: [
+            re.compile(r"^(?:warning:|WARNING:|Caution:|CAUTION:|⚠️?)\s*", re.IGNORECASE),
+        ],
+        ContentType.TIP: [
+            re.compile(r"^(?:tip:|TIP:|Tip:|💡)\s*", re.IGNORECASE),
+            re.compile(r"^(?:pro tip:|PRO TIP:)\s*", re.IGNORECASE),
+        ],
+        ContentType.QUESTION: [
+            re.compile(r"^\?"),
+            re.compile(r"^(?:Q:|Qustion:|question:)\s*", re.IGNORECASE),
+            re.compile(r"^(?:how|what|why|when|where|who)\s+(?:do|does|is|are|can|should)", re.IGNORECASE),
+        ],
+        ContentType.ANSWER: [
+            re.compile(r"^(?:A:|Answer:|answer:)\s*", re.IGNORECASE),
+        ],
+        ContentType.CODE_EXAMPLE: [
+            re.compile(r"^(?:example:|Example:|EXAMPLE:)\s*", re.IGNORECASE),
+            re.compile(r"```"),
+            re.compile(r"^\s{4,}"),
+        ],
+    }
 
+    # Keywords that indicate specific content types
+    CONTENT_KEYWORDS = {
+        ContentType.INTRODUCTION: {"introduction", "overview", "background", "purpose"},
+        ContentType.CONCLUSION: {"conclusion", "summary", "wrap-up", "final", "takeaway"},
+        ContentType.DEFINITION: {"definition", "defined as", "means", "refers to"},
+        ContentType.CITATION: {"according to", "as stated in", "see", "reference"},
+        ContentType.REFERENCE: {"see also", "related", "further reading", "documentation"},
+    }
 
-class SemanticTaggerPlugin:
-    """
-    Plugin for adding semantic tags to document content.
-    
-    This plugin analyzes document content and adds semantic markers including:
-    - Content type classification
-    - Importance level assignment
-    - Semantic tags for machine-readable metadata
-    - Section relationship mapping
-    
-    Example:
-        >>> tagger = SemanticTaggerPlugin()
-        >>> tagged = tagger.tag_content("# Introduction\\n\\nThis is a test.", line_start=1)
-        >>> print(tagged.content_type)
-        ContentType.HEADING
-    """
-    
-    def __init__(
-        self,
-        custom_tags: dict[str, list[str]] | None = None,
-        importance_keywords: dict[ImportanceLevel, list[str]] | None = None,
-    ) -> None:
+    def tag(self, section: Section) -> Section:
         """
-        Initialize the semantic tagger plugin.
-        
+        Apply semantic tagging to a section.
+
         Args:
-            custom_tags: Custom tag mappings (e.g., {"todo": ["TODO", "FIXME"]}).
-            importance_keywords: Keywords mapped to importance levels.
-        """
-        self.custom_tags = custom_tags or {}
-        self.importance_keywords = importance_keywords or self._default_importance_keywords()
-        self._content_id_counter = 0
-    
-    def _default_importance_keywords(self) -> dict[ImportanceLevel, list[str]]:
-        """Get default keywords for importance level detection."""
-        return {
-            ImportanceLevel.CRITICAL: [
-                "warning", "danger", "critical", "security", "vulnerability",
-                "breaking", "must", "required", "essential",
-            ],
-            ImportanceLevel.HIGH: [
-                "important", "note", "tip", "best practice", "recommend",
-                "significant", "key", "main",
-            ],
-            ImportanceLevel.LOW: [
-                "optional", "see also", "related", "footnote", "appendix",
-            ],
-        }
-    
-    def _generate_content_id(self) -> str:
-        """Generate a unique content ID."""
-        self._content_id_counter += 1
-        return f"content_{self._content_id_counter}"
-    
-    def tag_content(
-        self,
-        content: str,
-        line_start: int = 0,
-        context: dict[str, Any] | None = None,
-    ) -> TaggedContent:
-        """
-        Tag a piece of content with semantic markers.
-        
-        Args:
-            content: The content text to tag.
-            line_start: Starting line number for position tracking.
-            context: Optional context information (parent section, previous content, etc.).
-        
+            section: Section to tag.
+
         Returns:
-            TaggedContent with semantic tags applied.
+            Tagged section with enhanced metadata.
         """
-        tagged = TaggedContent(
-            content=content,
-            position={"line_start": line_start, "line_end": line_start + content.count("\\n")},
-        )
-        tagged.content_type = self._classify_content_type(content)
-        tagged.importance = self._determine_importance(content)
-        self._apply_custom_tags(tagged, content)
-        return tagged
-    
-    def _classify_content_type(self, content: str) -> ContentType:
+        if section.section_type == SectionType.PARAGRAPH:
+            self._tag_paragraph(section)
+        elif section.section_type == SectionType.HEADING:
+            self._tag_heading(section)
+        elif section.section_type == SectionType.CODE_BLOCK:
+            self._tag_code_block(section)
+        elif section.section_type == SectionType.LIST:
+            self._tag_list(section)
+
+        return section
+
+    def _tag_paragraph(self, section: Section) -> None:
+        """Tag a paragraph section."""
+        content = section.content
+
+        # Apply pattern-based classification
+        for content_type, patterns in self.SEMANTIC_PATTERNS.items():
+            for pattern in patterns:
+                if pattern.search(content):
+                    section.content_type = content_type
+                    section.metadata["tagger_match"] = pattern.pattern
+                    break
+
+        # Check for keywords in context
+        if section.content_type == ContentType.UNCLASSIFIED:
+            for keyword_type, keywords in self.CONTENT_KEYWORDS.items():
+                if any(kw in content.lower() for kw in keywords):
+                    section.content_type = keyword_type
+                    break
+
+        # Add semantic annotations
+        section.metadata["annotations"] = self._extract_annotations(content)
+
+    def _tag_heading(self, section: Section) -> None:
+        """Tag a heading section."""
+        content = section.content.lower()
+
+        # Infer heading semantic type from keywords
+        for keyword_type, keywords in self.CONTENT_KEYWORDS.items():
+            if any(kw in content for kw in keywords):
+                section.content_type = keyword_type
+                break
+
+        # Add heading context metadata
+        section.metadata["is_title"] = section.level == 1 and len(content) < 50
+
+    def _tag_code_block(self, section: Section) -> None:
+        """Tag a code block section."""
+        # Detect language from fenced blocks
+        if "```" in section.raw_text:
+            match = re.search(r"```(\w*)", section.raw_text)
+            if match and match.group(1):
+                section.metadata["language"] = match.group(1)
+
+        # Infer language from content patterns
+        content = section.content
+        if not section.metadata.get("language"):
+            inferred = self._infer_language(content)
+            if inferred:
+                section.metadata["language"] = inferred
+
+    def _tag_list(self, section: Section) -> None:
+        """Tag a list section."""
+        # Classify list based on content
+        items = section.content.split("\n")
+        if len(items) > 3:
+            section.metadata["is_long_list"] = True
+
+        # Check for checklist patterns
+        if any("[" in item and "]" in item for item in items):
+            section.metadata["is_checklist"] = True
+
+    def _infer_language(self, code: str) -> Optional[str]:
         """
-        Classify the content type based on content analysis.
-        
+        Infer programming language from code content.
+
         Args:
-            content: The content to classify.
-        
+            code: Code block content.
+
         Returns:
-            The classified ContentType.
+            Inferred language name or None.
         """
-        stripped = content.strip()
-        
-        # Check for code blocks
-        if stripped.startswith("```") or stripped.startswith("    ") or "\t" in stripped[:4]:
-            return ContentType.CODE
-        
-        # Check for headings
-        if stripped.startswith("#"):
-            return ContentType.HEADING
-        
-        # Check for list items
-        if stripped.startswith(("- ", "* ", "+ ")) or stripped.startswith((
-            "1. ", "2. ", "3. ", "4. ", "5. ",
-        )):
-            return ContentType.LIST
-        
-        # Check for tables (simplified detection)
-        if "|" in stripped and stripped.count("|") >= 2:
-            return ContentType.TABLE
-        
-        # Check for blockquotes
-        if stripped.startswith(">"):
-            return ContentType.BLOCKQUOTE
-        
-        # Check for images
-        if stripped.startswith("!["):
-            return ContentType.IMAGE
-        
-        # Check for links
-        if stripped.startswith("[") and "]" in stripped and "(" in stripped:
-            return ContentType.LINK
-        
-        # Check for callouts/admonitions
-        lower_content = stripped.lower()
-        if any(keyword in lower_content for keyword in ["note:", "warning:", "tip:", "caution:", "info:"]):
-            return ContentType.CALLout
-        
-        # Check for math expressions
-        if stripped.startswith("$") and stripped.endswith("$"):
-            return ContentType.MATH
-        
-        # Default to text
-        return ContentType.TEXT
-    
-    def _determine_importance(self, content: str) -> ImportanceLevel:
+        code_lower = code.lower()
+
+        # Simple language inference from common patterns
+        if "def " in code or "import " in code or "from " in code:
+            if ":" in code and ("self." in code or "cls." in code):
+                return "python"
+            return "python"
+        if "function" in code_lower or "const " in code or "let " in code:
+            if "=>" in code or "console." in code:
+                return "javascript"
+            if "interface" in code_lower or "type " in code:
+                return "typescript"
+            return "javascript"
+        if "#include" in code or "int main" in code:
+            return "c"
+        if "package main" in code or "func " in code:
+            return "go"
+        if "class " in code and "{" in code:
+            if "public static void main" in code:
+                return "java"
+            if "def" in code_lower:
+                return "kotlin"
+        if "fn main" in code or "let mut" in code:
+            return "rust"
+        if "<?php" in code or "$" in code:
+            return "php"
+        if "<html" in code_lower or "<!doctype" in code_lower:
+            return "html"
+        if "{" in code and ":" in code and (";" not in code or ";" in code.replace(" ", "")):
+            return "css"
+
+        return None
+
+    def _extract_annotations(self, content: str) -> list[dict]:
         """
-        Determine the importance level of content based on keywords.
-        
+        Extract semantic annotations from content.
+
         Args:
-            content: The content to analyze.
-        
+            content: Content to analyze.
+
         Returns:
-            The determined ImportanceLevel.
+            List of annotation dictionaries.
         """
-        lower_content = content.lower()
-        
-        # Check for critical keywords
-        for keyword in self.importance_keywords[ImportanceLevel.CRITICAL]:
-            if keyword in lower_content:
-                return ImportanceLevel.CRITICAL
-        
-        # Check for high importance keywords
-        for keyword in self.importance_keywords[ImportanceLevel.HIGH]:
-            if keyword in lower_content:
-                return ImportanceLevel.HIGH
-        
-        # Check for low importance keywords
-        for keyword in self.importance_keywords[ImportanceLevel.LOW]:
-            if keyword in lower_content:
-                return ImportanceLevel.LOW
-        
-        return ImportanceLevel.MEDIUM
-    
-    def _apply_custom_tags(self, tagged: TaggedContent, content: str) -> None:
-        """
-        Apply custom tags based on configured tag mappings.
-        
-        Args:
-            tagged: The TaggedContent to apply tags to.
-            content: The content to analyze for custom tags.
-        """
-        for tag_name, keywords in self.custom_tags.items():
-            for keyword in keywords:
-                if keyword in content:
-                    tagged.add_tag(
-                        name=tag_name,
-                        value=keyword,
-                        confidence=0.9,
-                        matched_keyword=keyword,
-                    )
-    
-    def tag_document(
-        self,
-        sections: list[dict[str, Any]],
-        preserve_relationships: bool = True,
-    ) -> list[TaggedContent]:
-        """
-        Tag multiple document sections with semantic markers.
-        
-        Args:
-            sections: List of document sections with 'content' and optional 'level'.
-            preserve_relationships: Whether to detect and preserve section relationships.
-        
-        Returns:
-            List of TaggedContent with semantic tags applied.
-        """
-        tagged_sections = []
-        
-        for idx, section in enumerate(sections):
-            content = section.get("content", "")
-            level = section.get("level", 0)
-            line_start = section.get("line_start", idx * 10)
-            
-            tagged = self.tag_content(content, line_start)
-            tagged.position["level"] = level
-            tagged.position["section_index"] = idx
-            
-            # Preserve section relationships if requested
-            if preserve_relationships and idx > 0:
-                tagged.add_relationship(
-                    target_id=f"content_{idx}",
-                    relationship=SectionRelationship.PRECEDES,
-                )
-            
-            tagged_sections.append(tagged)
-        
-        return tagged_sections
-    
-    def extract_semantic_metadata(self, tagged_content: TaggedContent) -> dict[str, Any]:
-        """
-        Extract structured semantic metadata from tagged content.
-        
-        Args:
-            tagged_content: The TaggedContent to extract metadata from.
-        
-        Returns:
-            Dictionary containing semantic metadata.
-        """
-        return {
-            "content_type": tagged_content.content_type.value,
-            "importance": tagged_content.importance.value,
-            "tags": [tag.to_dict() for tag in tagged_content.tags],
-            "relationship_count": len(tagged_content.relationships),
-            "position": tagged_content.position,
-            "content_length": len(tagged_content.content),
-            "word_count": len(tagged_content.content.split()),
-        }
+        annotations = []
+
+        # Extract inline code references
+        code_refs = re.findall(r"`([^`]+)`", content)
+        for ref in code_refs:
+            annotations.append({"type": "code_reference", "value": ref})
+
+        # Extract URLs
+        urls = re.findall(r"https?://[^\s]+", content)
+        for url in urls:
+            annotations.append({"type": "url", "value": url})
+
+        # Extract citations
+        citations = re.findall(r"\[([^\]]+)\]\(([^)]+)\)", content)
+        for cite in citations:
+            annotations.append({"type": "citation", "text": cite[0], "url": cite[1]})
+
+        return annotations

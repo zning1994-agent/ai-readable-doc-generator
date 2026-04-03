@@ -1,68 +1,94 @@
-"""Base transformer class for document transformation."""
+"""Base converter class for document conversion."""
 
 from abc import ABC, abstractmethod
-from typing import Any
+from typing import Optional
 
-from ai_readable_doc_generator.models.document import Document
-from ai_readable_doc_generator.models.schema import OutputSchema
+from ai_readable_doc_generator.models import Document, OutputSchema, SchemaType
 
 
-class BaseTransformer(ABC):
-    """Abstract base class for document transformers."""
+class BaseConverter(ABC):
+    """
+    Abstract base class for document converters.
 
-    def __init__(self, schema: OutputSchema | None = None) -> None:
-        """Initialize the transformer with an optional schema.
+    Converters transform raw document content into structured Document objects
+    with semantic tagging and metadata.
+
+    Attributes:
+        schema: Output schema to use for conversion.
+        options: Additional conversion options.
+    """
+
+    def __init__(
+        self,
+        schema: Optional[OutputSchema] = None,
+        options: Optional[dict] = None,
+    ) -> None:
+        """
+        Initialize the converter.
 
         Args:
-            schema: Output schema configuration. Uses default if not provided.
+            schema: Output schema to use. Defaults to standard schema.
+            options: Additional conversion options.
         """
-        self.schema = schema or OutputSchema.default_schema()
+        self.schema = schema or OutputSchema.standard()
+        self.options = options or {}
 
     @abstractmethod
-    def transform(self, document: Document) -> Any:
-        """Transform a document to the target format.
+    def convert(self, content: str, source_path: str = "") -> Document:
+        """
+        Convert raw content to a structured Document.
 
         Args:
-            document: The document to transform.
+            content: Raw document content.
+            source_path: Optional source file path.
 
         Returns:
-            The transformed document in the target format.
-
-        Raises:
-            ValueError: If the document is invalid.
+            Structured Document object.
         """
         pass
 
     @abstractmethod
-    def validate(self, document: Document) -> bool:
-        """Validate a document before transformation.
+    def parse(self, content: str) -> Document:
+        """
+        Parse content into sections without full conversion.
+
+        This method can be used for quick parsing without
+        applying full semantic analysis.
 
         Args:
-            document: The document to validate.
+            content: Raw document content.
 
         Returns:
-            True if the document is valid, False otherwise.
+            Parsed Document with basic structure.
         """
         pass
 
-    def pre_transform(self, document: Document) -> Document:
-        """Hook for pre-transformation processing.
+    def validate_content(self, content: str) -> bool:
+        """
+        Validate that content can be processed.
 
         Args:
-            document: The document to process.
+            content: Content to validate.
 
         Returns:
-            The processed document.
+            True if content is valid for processing.
         """
-        return document
+        return bool(content and content.strip())
 
-    def post_transform(self, result: Any) -> Any:
-        """Hook for post-transformation processing.
+    def get_schema(self) -> OutputSchema:
+        """
+        Get the current output schema.
+
+        Returns:
+            Current OutputSchema instance.
+        """
+        return self.schema
+
+    def set_schema(self, schema: OutputSchema) -> None:
+        """
+        Set a new output schema.
 
         Args:
-            result: The transformation result.
-
-        Returns:
-            The processed result.
+            schema: New OutputSchema to use.
         """
-        return result
+        self.schema = schema
