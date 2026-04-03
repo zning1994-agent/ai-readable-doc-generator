@@ -1,115 +1,110 @@
-"""JSON transformer for structured JSON output."""
+"""JSON transformer for structured output."""
 
 import json
 from typing import Any
 
-from ai_readable_doc_generator.models.document import Document
-from ai_readable_doc_generator.models.schema import OutputSchema
+from ai_readable_doc_generator.document import Document
 from ai_readable_doc_generator.transformer.base_transformer import BaseTransformer
 
 
-class JsonTransformer(BaseTransformer):
-    """Transforms documents to JSON format with configurable schema.
-
-    Supports both compact and pretty-printed JSON output with
-    semantic tagging integration.
-    """
-
-    def __init__(
-        self,
-        schema: OutputSchema | None = None,
-        pretty: bool = True,
-        indent: int = 2,
-    ) -> None:
-        """Initialize JSON transformer.
-
+class JSONTransformer(BaseTransformer):
+    """Transforms documents into structured JSON format."""
+    
+    def __init__(self, pretty: bool = True, indent: int = 2):
+        """Initialize the JSON transformer.
+        
         Args:
-            schema: Optional output schema configuration.
-            pretty: Whether to pretty-print JSON output.
-            indent: Indentation level for pretty printing.
+            pretty: Whether to pretty-print the JSON output.
+            indent: Number of spaces for indentation when pretty printing.
         """
-        super().__init__(schema)
         self.pretty = pretty
-        self.indent = indent
-
+        self.indent = indent if pretty else None
+    
     def transform(self, document: Document) -> str:
-        """Transform document to JSON string.
-
+        """Transform a document to JSON format.
+        
         Args:
             document: The document to transform.
-
+        
         Returns:
             JSON string representation of the document.
         """
-        data = self.transform_to_dict(document)
-
+        output = self._document_to_dict(document)
+        
         if self.pretty:
-            return json.dumps(data, indent=self.indent, ensure_ascii=False)
-        return json.dumps(data, ensure_ascii=False)
-
-    def transform_to_dict(self, document: Document) -> dict[str, Any]:
-        """Transform document to dictionary for JSON conversion.
-
+            return json.dumps(output, indent=self.indent, ensure_ascii=False)
+        else:
+            return json.dumps(output, ensure_ascii=False)
+    
+    def _document_to_dict(self, document: Document) -> dict[str, Any]:
+        """Convert a document to a dictionary representation.
+        
         Args:
-            document: The document to transform.
-
+            document: The document to convert.
+        
         Returns:
             Dictionary representation of the document.
         """
-        result: dict[str, Any] = {
-            "title": document.title,
-            "source_format": document.source_format,
+        result = {
+            "metadata": self._metadata_to_dict(document.metadata),
+            "sections": [self._section_to_dict(section) for section in document.sections],
+            "structure": document.get_hierarchy(),
         }
-
-        # Include metadata if configured
-        if self.schema.include_metadata:
-            result["metadata"] = document.metadata
-
-        # Include table of contents if configured
-        if self.schema.include_toc:
-            result["table_of_contents"] = document.get_table_of_contents()
-
-        # Include semantic tags if configured
-        if self.schema.semantic_tags:
-            result["sections"] = [
-                self._section_to_dict(section) for section in document.sections
-            ]
-        else:
-            # Simple section list without semantic tags
-            result["sections"] = [
-                {"content": section.content, "type": section.section_type.value}
-                for section in document.sections
-            ]
-
-        # Apply custom schema fields
-        if self.schema.fields:
-            result = self._apply_schema_fields(result, document)
-
+        
         return result
-
-    def _section_to_dict(self, section) -> dict[str, Any]:
-        """Convert section to dictionary with semantic tags.
-
+    
+    def _metadata_to_dict(self, metadata) -> dict[str, Any]:
+        """Convert metadata to a dictionary.
+        
         Args:
-            section: Section to convert.
-
+            metadata: The metadata to convert.
+        
         Returns:
-            Dictionary representation of section.
+            Dictionary representation of the metadata.
         """
-        result: dict[str, Any] = {
-            "content": section.content,
-            "type": section.section_type.value,
-            "level": section.level,
+        return {
+            "title": metadata.title,
+            "description": metadata.description,
+            "author": metadata.author,
+            "version": metadata.version,
+            "created_at": metadata.created_at.isoformat() if metadata.created_at else None,
+            "updated_at": metadata.updated_at.isoformat() if metadata.updated_at else None,
+            "tags": metadata.tags or [],
+            "frontmatter": metadata.frontmatter or {},
+            "character_count": metadata.character_count,
+            "word_count": metadata.word_count,
+            "section_count": metadata.section_count,
         }
-
-        # Include semantic metadata if available
-        if "semantic" in section.metadata:
-            result["semantic"] = section.metadata["semantic"]
-
-        # Include children if any
+    
+    def _section_to_dict(self, section) -> dict[str, Any]:
+        """Convert a section to a dictionary.
+        
+        Args:
+            section: The section to convert.
+        
+        Returns:
+            Dictionary representation of the section.
+        """
+        result = {
+            "id": section.id,
+            "title": section.title,
+            "type": section.type.value if hasattr(section.type, 'value') else str(section.type),
+            "level": section.level,
+            "content": section.content,
+            "semantic_tags": section.semantic_tags or [],
+            "content_type": section.content_type or "text",
+            "importance": section.importance or "normal",
+        }
+        
         if section.children:
-            result["children"] = [
-                self._section_to_dict(child) for child in section.children
-            ]
-
+            result["children"] = [self._section_to_dict(child) for child in section.children]
+        
         return result
+    
+    def get_content_type(self) -> str:
+        """Get the content type of the output.
+        
+        Returns:
+            MIME content type string.
+        """
+        return "application/json"

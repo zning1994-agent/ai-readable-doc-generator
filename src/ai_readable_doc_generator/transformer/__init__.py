@@ -1,7 +1,11 @@
-"""Transformer package for document output formatting."""
+"""Transformer package for ai-readable-doc-generator."""
 
 from ai_readable_doc_generator.transformer.base_transformer import BaseTransformer
-from ai_readable_doc_generator.transformer.json_transformer import JsonTransformer
-from ai_readable_doc_generator.transformer.mcp_transformer import McpTransformer
+from ai_readable_doc_generator.transformer.json_transformer import JSONTransformer
+from ai_readable_doc_generator.transformer.mcp_transformer import MCPTransformer
 
-__all__ = ["BaseTransformer", "JsonTransformer", "McpTransformer"]
+__all__ = [
+    "BaseTransformer",
+    "JSONTransformer",
+    "MCPTransformer",
+]

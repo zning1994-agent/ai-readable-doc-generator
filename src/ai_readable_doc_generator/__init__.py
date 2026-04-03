@@ -1,33 +1,23 @@
-"""
-ai-readable-doc-generator: Transform documentation into AI-agent-friendly formats.
+"""AI-Readable Document Generator.
 
-This package provides tools for converting documentation (Markdown) into
-structured formats with semantic tagging that AI agents can parse effectively.
-
-Usage:
-    from ai_readable_doc_generator import Converter, Document
-
-    # Convert markdown to AI-readable format
-    document = Document.from_markdown("# Hello\n\nContent here")
-    converter = Converter()
-    result = converter.convert(document, JSONTransformer())
+Transform Markdown documentation into AI-friendly formats with semantic tagging.
 """
 
 __version__ = "0.1.0"
 __author__ = "AI Documentation Team"
-__license__ = "MIT"
+__description__ = "Transform documentation into AI-agent-friendly formats"
 
-from .converter import Converter
-from .document import Document
-
-# Import transformers
-from .transformer.json_transformer import JSONTransformer
-from .transformer.mcp_transformer import MCPTransformer
+from ai_readable_doc_generator.converter import Converter
+from ai_readable_doc_generator.document import Document
+from ai_readable_doc_generator.models.document import DocumentMetadata
+from ai_readable_doc_generator.models.section import Section, SectionType
+from ai_readable_doc_generator.models.schema import OutputSchema
 
 __all__ = [
     "Converter",
     "Document",
-    "JSONTransformer",
-    "MCPTransformer",
-    "__version__",
+    "DocumentMetadata",
+    "Section",
+    "SectionType",
+    "OutputSchema",
 ]

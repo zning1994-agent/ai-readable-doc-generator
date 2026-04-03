@@ -1,4 +1,4 @@
-"""Parser plugins for document enhancement."""
+"""Parser plugins for semantic tagging and content analysis."""
 
 from ai_readable_doc_generator.parser.plugins.semantic_tagger import SemanticTagger
 

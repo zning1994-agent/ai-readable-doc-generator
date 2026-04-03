@@ -1,5 +1,5 @@
-"""Parser package for document parsing."""
+"""Parser package for ai-readable-doc-generator."""
 
-from ai_readable_doc_generator.parser.plugins.semantic_tagger import SemanticTagger
+from ai_readable_doc_generator.parser.markdown_parser import MarkdownParser
 
-__all__ = ["SemanticTagger"]
+__all__ = ["MarkdownParser"]

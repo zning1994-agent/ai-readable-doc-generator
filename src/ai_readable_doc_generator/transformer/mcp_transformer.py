@@ -1,200 +1,200 @@
-"""MCP (Model Context Protocol) transformer for AI agent integration."""
+"""MCP (Model Context Protocol) transformer for AI agent compatibility."""
 
 import json
+from datetime import datetime
 from typing import Any
 
-from ai_readable_doc_generator.models.document import Document
-from ai_readable_doc_generator.models.schema import OutputSchema
+from ai_readable_doc_generator.document import Document
 from ai_readable_doc_generator.transformer.base_transformer import BaseTransformer
 
 
-class McpTransformer(BaseTransformer):
-    """Transforms documents to MCP-compatible format for AI agent integration.
-
-    The Model Context Protocol requires structured, standardized input
-    with explicit relationships and semantic context.
-    """
-
-    def __init__(
-        self,
-        schema: OutputSchema | None = None,
-        pretty: bool = True,
-        indent: int = 2,
-    ) -> None:
-        """Initialize MCP transformer.
-
+class MCPTransformer(BaseTransformer):
+    """Transforms documents into MCP-compatible JSON format for AI agents."""
+    
+    def __init__(self, version: str = "1.0"):
+        """Initialize the MCP transformer.
+        
         Args:
-            schema: Optional output schema configuration.
-            pretty: Whether to pretty-print output.
-            indent: Indentation level for pretty printing.
+            version: MCP protocol version to use.
         """
-        super().__init__(schema)
-        self.pretty = pretty
-        self.indent = indent
-
+        self.version = version
+        self._resource_id = 0
+    
     def transform(self, document: Document) -> str:
-        """Transform document to MCP-compatible format.
-
+        """Transform a document to MCP-compatible format.
+        
         Args:
             document: The document to transform.
-
+        
         Returns:
-            MCP-formatted string representation.
+            MCP-compatible JSON string representation of the document.
         """
-        data = self.transform_to_dict(document)
-
-        if self.pretty:
-            return json.dumps(data, indent=self.indent, ensure_ascii=False)
-        return json.dumps(data, ensure_ascii=False)
-
-    def transform_to_dict(self, document: Document) -> dict[str, Any]:
-        """Transform document to MCP-compatible dictionary.
-
+        output = self._create_mcp_response(document)
+        return json.dumps(output, indent=2, ensure_ascii=False)
+    
+    def _create_mcp_response(self, document: Document) -> dict[str, Any]:
+        """Create an MCP-compliant response structure.
+        
         Args:
             document: The document to transform.
-
+        
         Returns:
-            MCP-structured dictionary representation.
-        """
-        # Build context structure for AI agents
-        result: dict[str, Any] = {
-            "mcp_version": "1.0",
-            "context": {
-                "title": document.title,
-                "description": self._generate_description(document),
-            },
-        }
-
-        # Add relationships for AI understanding
-        if self.schema.semantic_tags:
-            result["relationships"] = self._build_relationships(document)
-
-        # Add structured sections
-        result["sections"] = self._build_structured_sections(document)
-
-        # Add document metadata
-        if self.schema.include_metadata:
-            result["metadata"] = self._build_metadata(document)
-
-        # Add table of contents
-        if self.schema.include_toc:
-            result["navigation"] = {
-                "table_of_contents": document.get_table_of_contents(),
-                "total_sections": len(document.sections),
-            }
-
-        return result
-
-    def _generate_description(self, document: Document) -> str:
-        """Generate a brief description of the document.
-
-        Args:
-            document: Document to describe.
-
-        Returns:
-            Brief description string.
-        """
-        # Extract first paragraph as description
-        for section in document.sections:
-            if section.section_type.value == "paragraph":
-                return section.content[:200] + "..." if len(section.content) > 200 else section.content
-        return document.title or "Untitled document"
-
-    def _build_relationships(self, document: Document) -> dict[str, Any]:
-        """Build relationship graph for document structure.
-
-        Args:
-            document: Document to analyze.
-
-        Returns:
-            Relationship structure.
-        """
-        relationships: dict[str, Any] = {
-            "hierarchical": self._build_hierarchy(document),
-            "by_type": {},
-            "important_sections": [],
-        }
-
-        # Group sections by type
-        for section in document.sections:
-            section_type = section.section_type.value
-            if section_type not in relationships["by_type"]:
-                relationships["by_type"][section_type] = []
-            relationships["by_type"][section_type].append(section.content[:50])
-
-            # Track important sections
-            if section.metadata.get("semantic", {}).get("importance") == "high":
-                relationships["important_sections"].append({
-                    "content": section.content[:100],
-                    "reason": section.metadata["semantic"].get("importance_indicator"),
-                })
-
-        return relationships
-
-    def _build_hierarchy(self, document: Document) -> list[dict[str, Any]]:
-        """Build hierarchical structure of headings.
-
-        Args:
-            document: Document to analyze.
-
-        Returns:
-            Hierarchical structure as nested list.
-        """
-        hierarchy: list[dict[str, Any]] = []
-        current_level = 0
-
-        for section in document.sections:
-            if section.section_type.value in ("title", "heading"):
-                hierarchy.append({
-                    "level": section.level,
-                    "content": section.content,
-                    "line_number": section.line_number,
-                })
-                current_level = section.level
-
-        return hierarchy
-
-    def _build_structured_sections(self, document: Document) -> list[dict[str, Any]]:
-        """Build structured sections with full semantic context.
-
-        Args:
-            document: Document to structure.
-
-        Returns:
-            List of structured section dictionaries.
-        """
-        structured = []
-
-        for section in document.sections:
-            section_data: dict[str, Any] = {
-                "id": f"section_{section.line_number}",
-                "content": section.content,
-                "type": section.section_type.value,
-                "context": {
-                    "level": section.level,
-                    "line_number": section.line_number,
-                },
-            }
-
-            # Add semantic context if available
-            if "semantic" in section.metadata:
-                section_data["semantic"] = section.metadata["semantic"]
-
-            structured.append(section_data)
-
-        return structured
-
-    def _build_metadata(self, document: Document) -> dict[str, Any]:
-        """Build document metadata.
-
-        Args:
-            document: Document to extract metadata from.
-
-        Returns:
-            Metadata dictionary.
+            MCP-compliant dictionary structure.
         """
         return {
-            **document.metadata,
-            "source_format": document.source_format,
-            "source_path": document.source_path,
+            "mcp_version": self.version,
+            "generated_at": datetime.utcnow().isoformat() + "Z",
+            "resource": {
+                "uri": f"file:///{document.metadata.source_path or 'unknown'}",
+                "name": document.metadata.title or "Untitled Document",
+                "mime_type": "text/markdown",
+                "description": document.metadata.description,
+            },
+            "contents": [
+                self._section_to_mcp_content(section, document)
+                for section in document.sections
+            ],
+            "metadata": {
+                "title": document.metadata.title,
+                "author": document.metadata.author,
+                "version": document.metadata.version,
+                "tags": document.metadata.tags or [],
+                "word_count": document.metadata.word_count,
+                "section_count": document.metadata.section_count,
+            },
+            "context": {
+                "hierarchy": document.get_hierarchy(),
+                "relationships": self._extract_relationships(document),
+            },
         }
+    
+    def _section_to_mcp_content(self, section, document: Document) -> dict[str, Any]:
+        """Convert a section to MCP content format.
+        
+        Args:
+            section: The section to convert.
+            document: The parent document for context.
+        
+        Returns:
+            MCP content representation of the section.
+        """
+        self._resource_id += 1
+        
+        content = {
+            "type": "text",
+            "resource_id": f"section_{self._resource_id}",
+            "section_id": section.id,
+            "title": section.title,
+            "level": section.level,
+            "section_type": section.type.value if hasattr(section.type, 'value') else str(section.type),
+            "content": section.content,
+            "semantic_tags": section.semantic_tags or [],
+            "content_classification": {
+                "type": section.content_type or "text",
+                "importance": section.importance or "normal",
+            },
+            "annotations": {
+                "has_code": self._contains_code(section.content),
+                "has_lists": self._contains_lists(section.content),
+                "has_links": self._contains_links(section.content),
+                "has_tables": self._contains_tables(section.content),
+            },
+        }
+        
+        if section.children:
+            content["children"] = [
+                self._section_to_mcp_content(child, document)
+                for child in section.children
+            ]
+        
+        return content
+    
+    def _extract_relationships(self, document: Document) -> list[dict[str, Any]]:
+        """Extract relationships between sections.
+        
+        Args:
+            document: The document to analyze.
+        
+        Returns:
+            List of relationship dictionaries.
+        """
+        relationships = []
+        
+        for section in document.sections:
+            if section.children:
+                for child in section.children:
+                    relationships.append({
+                        "type": "parent_child",
+                        "parent_id": section.id,
+                        "child_id": child.id,
+                        "parent_title": section.title,
+                        "child_title": child.title,
+                    })
+        
+        return relationships
+    
+    def _contains_code(self, content: str) -> bool:
+        """Check if content contains code blocks.
+        
+        Args:
+            content: The content to check.
+        
+        Returns:
+            True if content contains code blocks.
+        """
+        return "```" in content or "`" in content
+    
+    def _contains_lists(self, content: str) -> bool:
+        """Check if content contains lists.
+        
+        Args:
+            content: The content to check.
+        
+        Returns:
+            True if content contains lists.
+        """
+        lines = content.split("\n")
+        for line in lines:
+            stripped = line.strip()
+            if stripped.startswith("- ") or stripped.startswith("* ") or stripped.startswith("• "):
+                return True
+            if stripped and stripped[0].isdigit() and ". " in stripped[:5]:
+                return True
+        return False
+    
+    def _contains_links(self, content: str) -> bool:
+        """Check if content contains links.
+        
+        Args:
+            content: The content to check.
+        
+        Returns:
+            True if content contains links.
+        """
+        return "[" in content and "](" in content
+    
+    def _contains_tables(self, content: str) -> bool:
+        """Check if content contains tables.
+        
+        Args:
+            content: The content to check.
+        
+        Returns:
+            True if content contains tables.
+        """
+        lines = content.split("\n")
+        table_markers = 0
+        for line in lines:
+            if "|" in line:
+                table_markers += 1
+            elif "---" in line and "|" in line:
+                table_markers += 1
+        return table_markers >= 2
+    
+    def get_content_type(self) -> str:
+        """Get the content type of the output.
+        
+        Returns:
+            MIME content type string.
+        """
+        return "application/json"
