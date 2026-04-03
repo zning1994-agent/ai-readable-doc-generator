@@ -1,68 +1,44 @@
-"""Base transformer class for document transformation."""
+"""Base transformer class for document conversion."""
 
 from abc import ABC, abstractmethod
 from typing import Any
 
-from ai_readable_doc_generator.models.document import Document
-from ai_readable_doc_generator.models.schema import OutputSchema
-
 
 class BaseTransformer(ABC):
-    """Abstract base class for document transformers."""
+    """Abstract base class for document transformers.
+    
+    Transformers convert parsed document structures into various output formats
+    for AI agent consumption.
+    """
 
-    def __init__(self, schema: OutputSchema | None = None) -> None:
-        """Initialize the transformer with an optional schema.
-
+    def __init__(self, options: dict[str, Any] | None = None) -> None:
+        """Initialize the transformer with optional configuration.
+        
         Args:
-            schema: Output schema configuration. Uses default if not provided.
+            options: Optional configuration dictionary for transformer behavior.
         """
-        self.schema = schema or OutputSchema.default_schema()
+        self.options = options or {}
 
     @abstractmethod
-    def transform(self, document: Document) -> Any:
-        """Transform a document to the target format.
-
+    def transform(self, document: Any) -> str:
+        """Transform a document into the target format.
+        
         Args:
-            document: The document to transform.
-
+            document: The parsed document object to transform.
+            
         Returns:
-            The transformed document in the target format.
-
-        Raises:
-            ValueError: If the document is invalid.
+            String representation of the transformed document in target format.
         """
         pass
 
     @abstractmethod
-    def validate(self, document: Document) -> bool:
-        """Validate a document before transformation.
-
+    def validate(self, document: Any) -> bool:
+        """Validate that a document can be transformed.
+        
         Args:
             document: The document to validate.
-
+            
         Returns:
-            True if the document is valid, False otherwise.
+            True if the document is valid for transformation, False otherwise.
         """
         pass
-
-    def pre_transform(self, document: Document) -> Document:
-        """Hook for pre-transformation processing.
-
-        Args:
-            document: The document to process.
-
-        Returns:
-            The processed document.
-        """
-        return document
-
-    def post_transform(self, result: Any) -> Any:
-        """Hook for post-transformation processing.
-
-        Args:
-            result: The transformation result.
-
-        Returns:
-            The processed result.
-        """
-        return result
