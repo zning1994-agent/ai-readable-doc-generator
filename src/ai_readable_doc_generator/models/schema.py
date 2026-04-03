@@ -1,148 +1,174 @@
-"""Schema definitions for AI-readable document output."""
+"""Output schema models for structured document transformation."""
 
-from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
 
 
-class OutputFormat(Enum):
-    """Supported output formats."""
-    JSON = "json"
-    YAML = "yaml"
+class SchemaType(str, Enum):
+    """Enumeration of supported output schema types."""
+
+    BASIC = "basic"
+    DETAILED = "detailed"
+    SEMANTIC = "semantic"
     MCP = "mcp"
+    CUSTOM = "custom"
 
 
-class SectionType(Enum):
-    """Types of document sections with semantic meaning."""
-    TITLE = "title"
-    HEADING_1 = "heading_1"
-    HEADING_2 = "heading_2"
-    HEADING_3 = "heading_3"
-    HEADING_4 = "heading_4"
-    HEADING_5 = "heading_5"
-    HEADING_6 = "heading_6"
-    PARAGRAPH = "paragraph"
-    CODE_BLOCK = "code_block"
-    BLOCKQUOTE = "blockquote"
-    LIST_ITEM = "list_item"
-    TABLE = "table"
-    HORIZONTAL_RULE = "horizontal_rule"
-    FRONT_MATTER = "front_matter"
+class OutputSchema:
+    """Schema definition for structured output.
 
-
-class ContentClassification(Enum):
-    """Classification of content within sections."""
-    NARRATIVE = "narrative"
-    TECHNICAL = "technical"
-    REFERENCE = "reference"
-    EXAMPLE = "example"
-    WARNING = "warning"
-    NOTE = "note"
-    IMPORTANT = "important"
-    API_DOC = "api_documentation"
-    CONFIGURATION = "configuration"
-    TROUBLESHOOTING = "troubleshooting"
-
-
-class Importance(Enum):
-    """Importance level of content for AI processing."""
-    CRITICAL = 3
-    HIGH = 2
-    NORMAL = 1
-    LOW = 0
-
-
-@dataclass
-class SemanticTag:
-    """Semantic tag applied to document content."""
-    name: str
-    value: str
-    confidence: float = 1.0
-    source: str = "auto"
-
-    def to_dict(self) -> dict[str, Any]:
-        """Convert to dictionary representation."""
-        return {
-            "name": self.name,
-            "value": self.value,
-            "confidence": self.confidence,
-            "source": self.source
-        }
-
-
-@dataclass
-class Relationship:
-    """Relationship between document elements."""
-    source_id: str
-    target_id: str
-    relationship_type: str
-    metadata: dict[str, Any] = field(default_factory=dict)
-
-    def to_dict(self) -> dict[str, Any]:
-        """Convert to dictionary representation."""
-        return {
-            "source_id": self.source_id,
-            "target_id": self.target_id,
-            "type": self.relationship_type,
-            "metadata": self.metadata
-        }
-
-
-@dataclass
-class SchemaDefinition:
+    Attributes:
+        schema_type: The type of schema to use.
+        include_metadata: Whether to include metadata in output.
+        include_tags: Whether to include semantic tags.
+        include_importance: Whether to include importance levels.
+        flatten: Whether to flatten nested sections.
+        custom_fields: Additional custom fields to include.
     """
-    Schema definition for structured document output.
 
-    This defines the expected structure of AI-readable documents
-    with explicit semantic annotations.
-    """
-    version: str = "1.0"
-    format_version: str = "1.0"
+    # Default field configurations for each schema type
+    SCHEMA_CONFIGS: dict[SchemaType, dict[str, bool]] = {
+        SchemaType.BASIC: {
+            "include_metadata": False,
+            "include_tags": False,
+            "include_importance": False,
+            "flatten": True,
+        },
+        SchemaType.DETAILED: {
+            "include_metadata": True,
+            "include_tags": False,
+            "include_importance": False,
+            "flatten": False,
+        },
+        SchemaType.SEMANTIC: {
+            "include_metadata": True,
+            "include_tags": True,
+            "include_importance": True,
+            "flatten": False,
+        },
+        SchemaType.MCP: {
+            "include_metadata": True,
+            "include_tags": True,
+            "include_importance": True,
+            "flatten": False,
+        },
+        SchemaType.CUSTOM: {},
+    }
+
+    def __init__(
+        self,
+        schema_type: SchemaType = SchemaType.BASIC,
+        include_metadata: bool | None = None,
+        include_tags: bool | None = None,
+        include_importance: bool | None = None,
+        flatten: bool | None = None,
+        custom_fields: dict[str, Any] | None = None,
+    ) -> None:
+        """Initialize OutputSchema.
+
+        Args:
+            schema_type: The type of schema.
+            include_metadata: Override for metadata inclusion.
+            include_tags: Override for tags inclusion.
+            include_importance: Override for importance inclusion.
+            flatten: Override for flattening behavior.
+            custom_fields: Custom fields to include in output.
+        """
+        self.schema_type = schema_type
+        self.custom_fields = custom_fields or {}
+
+        # Start with default config for schema type
+        config = self.SCHEMA_CONFIGS.get(schema_type, self.SCHEMA_CONFIGS[SchemaType.BASIC]).copy()
+
+        # Apply overrides if provided
+        if include_metadata is not None:
+            config["include_metadata"] = include_metadata
+        if include_tags is not None:
+            config["include_tags"] = include_tags
+        if include_importance is not None:
+            config["include_importance"] = include_importance
+        if flatten is not None:
+            config["flatten"] = flatten
+
+        self.include_metadata = config["include_metadata"]
+        self.include_tags = config["include_tags"]
+        self.include_importance = config["include_importance"]
+        self.flatten = config["flatten"]
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "OutputSchema":
+        """Create OutputSchema from dictionary.
+
+        Args:
+            data: Dictionary containing schema configuration.
+
+        Returns:
+            A new OutputSchema instance.
+        """
+        schema_type = SchemaType(data.get("schema_type", "basic"))
+        return cls(
+            schema_type=schema_type,
+            include_metadata=data.get("include_metadata"),
+            include_tags=data.get("include_tags"),
+            include_importance=data.get("include_importance"),
+            flatten=data.get("flatten"),
+            custom_fields=data.get("custom_fields"),
+        )
 
     def to_dict(self) -> dict[str, Any]:
-        """Convert schema to dictionary representation."""
-        return {
-            "version": self.version,
-            "format_version": self.format_version,
-            "sections": {
-                "required": ["id", "type", "content"],
-                "properties": {
-                    "id": {"type": "string"},
-                    "type": {"type": "string", "enum": [t.value for t in SectionType]},
-                    "content": {"type": "string"},
-                    "level": {"type": "integer", "minimum": 1, "maximum": 6},
-                    "semantic_tags": {
-                        "type": "array",
-                        "items": {"$ref": "#/definitions/semantic_tag"}
-                    },
-                    "metadata": {"type": "object"}
-                }
-            },
-            "definitions": {
-                "semantic_tag": {
-                    "name": {"type": "string"},
-                    "value": {"type": "string"},
-                    "confidence": {"type": "number", "minimum": 0, "maximum": 1}
-                },
-                "relationship": {
-                    "source_id": {"type": "string"},
-                    "target_id": {"type": "string"},
-                    "type": {"type": "string"}
-                }
-            }
+        """Convert schema to dictionary representation.
+
+        Returns:
+            Dictionary containing schema configuration.
+        """
+        result: dict[str, Any] = {
+            "schema_type": self.schema_type.value,
+            "include_metadata": self.include_metadata,
+            "include_tags": self.include_tags,
+            "include_importance": self.include_importance,
+            "flatten": self.flatten,
         }
+        if self.custom_fields:
+            result["custom_fields"] = self.custom_fields
+        return result
 
+    def merge(self, other: "OutputSchema") -> "OutputSchema":
+        """Merge with another schema, taking non-default values from other.
 
-# Default semantic tag mappings for common Markdown patterns
-DEFAULT_SEMANTIC_MAPPINGS = {
-    "note": ContentClassification.NOTE,
-    "info": ContentClassification.NOTE,
-    "warning": ContentClassification.WARNING,
-    "caution": ContentClassification.WARNING,
-    "danger": ContentClassification.WARNING,
-    "tip": ContentClassification.EXAMPLE,
-    "example": ContentClassification.EXAMPLE,
-    "important": ContentClassification.IMPORTANT,
-    "see also": ContentClassification.REFERENCE,
-    "related": ContentClassification.REFERENCE,
-}
+        Args:
+            other: Another OutputSchema to merge with.
+
+        Returns:
+            A new merged OutputSchema.
+        """
+        return OutputSchema(
+            schema_type=other.schema_type,
+            include_metadata=other.include_metadata
+            if other.schema_type != SchemaType.BASIC
+            else self.include_metadata,
+            include_tags=other.include_tags
+            if other.schema_type != SchemaType.BASIC
+            else self.include_tags,
+            include_importance=other.include_importance
+            if other.schema_type != SchemaType.BASIC
+            else self.include_importance,
+            flatten=other.flatten if other.schema_type != SchemaType.BASIC else self.flatten,
+            custom_fields={**self.custom_fields, **other.custom_fields},
+        )
+
+    def __repr__(self) -> str:
+        """Return string representation of OutputSchema."""
+        return f"OutputSchema(type={self.schema_type.value})"
+
+    def __eq__(self, other: object) -> bool:
+        """Check equality with another OutputSchema."""
+        if not isinstance(other, OutputSchema):
+            return False
+        return (
+            self.schema_type == other.schema_type
+            and self.include_metadata == other.include_metadata
+            and self.include_tags == other.include_tags
+            and self.include_importance == other.include_importance
+            and self.flatten == other.flatten
+            and self.custom_fields == other.custom_fields
+        )

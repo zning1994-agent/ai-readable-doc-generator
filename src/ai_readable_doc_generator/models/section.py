@@ -1,138 +1,164 @@
-"""Section model for document content representation."""
+"""Section model for document structure representation."""
 
-from dataclasses import dataclass, field
-from typing import Any, TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from .schema import SectionType, ContentClassification, SemanticTag
+from enum import Enum
+from typing import Any
 
 
-@dataclass
+class ContentType(str, Enum):
+    """Enumeration of content types for semantic tagging."""
+
+    TITLE = "title"
+    HEADING = "heading"
+    PARAGRAPH = "paragraph"
+    CODE_BLOCK = "code_block"
+    LIST = "list"
+    LIST_ITEM = "list_item"
+    BLOCKQUOTE = "blockquote"
+    TABLE = "table"
+    IMAGE = "image"
+    LINK = "link"
+    HORIZONTAL_RULE = "horizontal_rule"
+    HTML = "html"
+    FRONTMATTER = "frontmatter"
+    UNKNOWN = "unknown"
+
+
 class Section:
-    """
-    Represents a section of a document.
+    """Represents a section of a document with semantic metadata.
 
-    Sections are the building blocks of structured documents,
-    each containing content with semantic metadata.
+    Attributes:
+        id: Unique identifier for the section.
+        content: The text content of the section.
+        content_type: The type of content (e.g., paragraph, heading, code).
+        level: Nesting level for headings (1-6).
+        children: Child sections for nested content.
+        metadata: Additional semantic metadata.
+        importance: Importance level (1-5, where 5 is highest).
+        tags: List of semantic tags for classification.
     """
-    id: str
-    type: "SectionType"
-    content: str
-    level: int = 1
-    line_start: int = 0
-    line_end: int = 0
-    language: str = ""
-    semantic_tags: list["SemanticTag"] = field(default_factory=list)
-    classification: "ContentClassification | None" = None
-    children: list["Section"] = field(default_factory=list)
-    metadata: dict[str, Any] = field(default_factory=dict)
+
+    def __init__(
+        self,
+        content: str,
+        content_type: ContentType = ContentType.PARAGRAPH,
+        level: int = 1,
+        importance: int = 3,
+        tags: list[str] | None = None,
+        metadata: dict[str, Any] | None = None,
+        id: str | None = None,
+        children: list["Section"] | None = None,
+    ) -> None:
+        """Initialize a Section.
+
+        Args:
+            content: The text content of the section.
+            content_type: The type of content.
+            level: Nesting level for headings.
+            importance: Importance level (1-5).
+            tags: Semantic tags for classification.
+            metadata: Additional metadata dictionary.
+            id: Unique identifier for the section.
+            children: Child sections for nested content.
+        """
+        self.id = id or self._generate_id(content)
+        self.content = content
+        self.content_type = content_type
+        self.level = level
+        self.children = children or []
+        self.metadata = metadata or {}
+        self.importance = self._validate_importance(importance)
+        self.tags = tags or []
+
+    @staticmethod
+    def _generate_id(content: str) -> str:
+        """Generate a unique ID from content.
+
+        Args:
+            content: The content to generate ID from.
+
+        Returns:
+            A URL-safe ID string.
+        """
+        import hashlib
+
+        content_hash = hashlib.md5(content.encode()).hexdigest()[:8]
+        return f"section_{content_hash}"
+
+    @staticmethod
+    def _validate_importance(value: int) -> int:
+        """Validate importance value is within range.
+
+        Args:
+            value: The importance value to validate.
+
+        Returns:
+            Validated importance value (clamped to 1-5).
+        """
+        return max(1, min(5, value))
+
+    def add_child(self, section: "Section") -> None:
+        """Add a child section.
+
+        Args:
+            section: The section to add as a child.
+        """
+        self.children.append(section)
 
     def to_dict(self) -> dict[str, Any]:
-        """Convert section to dictionary representation."""
+        """Convert section to dictionary representation.
+
+        Returns:
+            Dictionary containing section data.
+        """
         return {
             "id": self.id,
-            "type": self.type.value,
             "content": self.content,
+            "content_type": self.content_type.value,
             "level": self.level,
-            "line_start": self.line_start,
-            "line_end": self.line_end,
-            "language": self.language,
-            "semantic_tags": [tag.to_dict() for tag in self.semantic_tags],
-            "classification": self.classification.value if self.classification else None,
+            "importance": self.importance,
+            "tags": self.tags,
+            "metadata": self.metadata,
             "children": [child.to_dict() for child in self.children],
-            "metadata": self.metadata
         }
 
-    def add_semantic_tag(self, name: str, value: str, confidence: float = 1.0) -> None:
-        """Add a semantic tag to this section."""
-        from .schema import SemanticTag
-        self.semantic_tags.append(
-            SemanticTag(name=name, value=value, confidence=confidence)
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "Section":
+        """Create a Section from dictionary data.
+
+        Args:
+            data: Dictionary containing section data.
+
+        Returns:
+            A new Section instance.
+        """
+        content_type = ContentType(data.get("content_type", "paragraph"))
+        children = [cls.from_dict(child) for child in data.get("children", [])]
+
+        return cls(
+            content=data.get("content", ""),
+            content_type=content_type,
+            level=data.get("level", 1),
+            importance=data.get("importance", 3),
+            tags=data.get("tags", []),
+            metadata=data.get("metadata", {}),
+            id=data.get("id"),
+            children=children,
         )
 
-    def get_word_count(self) -> int:
-        """Get word count of section content."""
-        return len(self.content.split())
-
-    def get_char_count(self) -> int:
-        """Get character count of section content."""
-        return len(self.content)
-
-    def is_empty(self) -> bool:
-        """Check if section has no content."""
-        return not self.content.strip()
-
-    def get_depth(self) -> int:
-        """Get the depth of this section in the document tree."""
-        depth = 0
-        current = self
-        while current.children:
-            depth += 1
-            # Note: In this implementation, depth is based on children presence
-            break  # Simplified - actual implementation would track parent
-        return self.level
-
-
-@dataclass
-class SectionBuilder:
-    """Builder for creating Section objects with fluent interface."""
-
-    _section: Section | None = None
-
-    def create(
-        self,
-        section_id: str,
-        section_type: "SectionType",
-        content: str = ""
-    ) -> "SectionBuilder":
-        """Start building a new section."""
-        self._section = Section(
-            id=section_id,
-            type=section_type,
-            content=content
+    def __repr__(self) -> str:
+        """Return string representation of Section."""
+        return (
+            f"Section(id={self.id!r}, type={self.content_type.value}, "
+            f"level={self.level}, importance={self.importance})"
         )
-        return self
 
-    def with_level(self, level: int) -> "SectionBuilder":
-        """Set the heading level."""
-        if self._section:
-            self._section.level = level
-        return self
-
-    def with_line_range(self, start: int, end: int) -> "SectionBuilder":
-        """Set the line range."""
-        if self._section:
-            self._section.line_start = start
-            self._section.line_end = end
-        return self
-
-    def with_language(self, language: str) -> "SectionBuilder":
-        """Set the programming language for code blocks."""
-        if self._section:
-            self._section.language = language
-        return self
-
-    def with_classification(
-        self,
-        classification: "ContentClassification"
-    ) -> "SectionBuilder":
-        """Set content classification."""
-        if self._section:
-            self._section.classification = classification
-        return self
-
-    def with_metadata(self, key: str, value: Any) -> "SectionBuilder":
-        """Add metadata to the section."""
-        if self._section:
-            self._section.metadata[key] = value
-        return self
-
-    def add_child(self, child: Section) -> "SectionBuilder":
-        """Add a child section."""
-        if self._section:
-            self._section.children.append(child)
-        return self
-
-    def build(self) -> Section | None:
-        """Build and return the section."""
-        return self._section
+    def __eq__(self, other: object) -> bool:
+        """Check equality with another Section."""
+        if not isinstance(other, Section):
+            return False
+        return (
+            self.id == other.id
+            and self.content == other.content
+            and self.content_type == other.content_type
+            and self.level == other.level
+        )

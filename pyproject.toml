@@ -1,17 +1,18 @@
 [build-system]
-requires = ["setuptools>=68.0", "wheel"]
+requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "ai-readable-doc-generator"
 version = "0.1.0"
-description = "Transform documentation into AI-agent-friendly formats"
+description = "Transform documentation into AI-Agent-friendly formats with semantic tagging and MCP compatibility"
 readme = "README.md"
 license = {text = "MIT"}
-authors = [
-    {name = "AI Documentation Team"}
-]
 requires-python = ">=3.11"
+authors = [
+    {name = "Developer", email = "dev@example.com"}
+]
+keywords = ["ai", "documentation", "mcp", "llm", "rag"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
@@ -20,11 +21,11 @@ classifiers = [
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Topic :: Software Development :: Libraries :: Python Modules",
-    "Topic :: Text Processing :: Markup :: Markdown",
 ]
 dependencies = [
     "click>=8.1.0",
     "rich>=13.0.0",
+    "pydantic>=2.0.0",
 ]
 
 [project.optional-dependencies]
@@ -36,58 +37,23 @@ dev = [
 ]
 
 [project.scripts]
-ai-readable-doc = "ai_readable_doc_generator.cli.commands:main"
-
-[project.urls]
-Homepage = "https://github.com/your-org/ai-readable-doc-generator"
-Documentation = "https://github.com/your-org/ai-readable-doc-generator#readme"
-Repository = "https://github.com/your-org/ai-readable-doc-generator"
-Issues = "https://github.com/your-org/ai-readable-doc-generator/issues"
+ai-doc-gen = "ai_readable_doc_generator.cli.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
-
-[tool.setuptools.package-dir]
-"" = "src"
-
-[tool.ruff]
-line-length = 100
-target-version = "py311"
-
-[tool.ruff.lint]
-select = [
-    "E",      # pycodestyle errors
-    "W",      # pycodestyle warnings
-    "F",      # Pyflakes
-    "I",      # isort
-    "UP",     # pyupgrade
-    "B",      # flake8-bugbear
-    "C4",     # flake8-comprehensions
-]
-ignore = [
-    "E501",   # line too long (handled by formatter)
-]
-
-[tool.mypy]
-python_version = "3.11"
-warn_return_any = true
-warn_unused_configs = true
-ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_functions = ["test_*"]
-addopts = "-v --cov=ai_readable_doc_generator --cov-report=term-missing"
+addopts = "-v --tb=short"
 
-[tool.coverage.run]
-source = ["ai_readable_doc_generator"]
-branch = true
+[tool.ruff]
+line-length = 100
+target-version = "py311"
 
-[tool.coverage.report]
-exclude_lines = [
-    "pragma: no cover",
-    "def __repr__",
-    "raise NotImplementedError",
-    "if __name__ == .__main__.:",
-]
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true

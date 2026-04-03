@@ -1,320 +1,151 @@
-"""Document model for structured representation."""
+"""Document model for complete document representation."""
 
-import re
-from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
-from .schema import SectionType, ContentClassification, SemanticTag, Relationship
+from ai_readable_doc_generator.models.section import Section
 
 
-@dataclass
-class DocumentMetadata:
-    """Metadata for a document."""
-    source_name: str = ""
-    source_path: str = ""
-    title: str = ""
-    description: str = ""
-    author: str = ""
-    version: str = ""
-    created_at: str = ""
-    modified_at: str = ""
-    word_count: int = 0
-    line_count: int = 0
-    front_matter: dict[str, Any] = field(default_factory=dict)
+class Document:
+    """Represents a complete document with metadata and sections.
+
+    Attributes:
+        title: The document title.
+        sections: List of top-level sections in the document.
+        metadata: Document-level metadata.
+        source_path: Path to the source file (if applicable).
+        source_format: Format of the source document (e.g., 'markdown').
+        created_at: Timestamp when the document was created.
+        updated_at: Timestamp when the document was last modified.
+        tags: Document-level semantic tags.
+        language: Document language code (e.g., 'en', 'zh').
+    """
+
+    def __init__(
+        self,
+        title: str = "",
+        sections: list[Section] | None = None,
+        metadata: dict[str, Any] | None = None,
+        source_path: str | None = None,
+        source_format: str = "markdown",
+        tags: list[str] | None = None,
+        language: str = "en",
+    ) -> None:
+        """Initialize a Document.
+
+        Args:
+            title: The document title.
+            sections: List of sections in the document.
+            metadata: Document-level metadata.
+            source_path: Path to the source file.
+            source_format: Format of the source document.
+            tags: Document-level semantic tags.
+            language: Document language code.
+        """
+        self.title = title
+        self.sections = sections or []
+        self.metadata = metadata or {}
+        self.source_path = source_path
+        self.source_format = source_format
+        self.created_at = datetime.now()
+        self.updated_at = datetime.now()
+        self.tags = tags or []
+        self.language = language
+
+    def add_section(self, section: Section) -> None:
+        """Add a section to the document.
+
+        Args:
+            section: The section to add.
+        """
+        self.sections.append(section)
+        self.updated_at = datetime.now()
+
+    def get_all_sections(self, flatten: bool = True) -> list[Section]:
+        """Get all sections, optionally flattened.
+
+        Args:
+            flatten: Whether to flatten nested sections.
+
+        Returns:
+            List of sections.
+        """
+        if not flatten:
+            return self.sections.copy()
+
+        result: list[Section] = []
+        for section in self.sections:
+            result.append(section)
+            if section.children:
+                result.extend(self._flatten_sections(section.children))
+        return result
+
+    @staticmethod
+    def _flatten_sections(sections: list[Section]) -> list[Section]:
+        """Recursively flatten sections list.
+
+        Args:
+            sections: List of sections to flatten.
+
+        Returns:
+            Flattened list of sections.
+        """
+        result: list[Section] = []
+        for section in sections:
+            result.append(section)
+            if section.children:
+                result.extend(Document._flatten_sections(section.children))
+        return result
 
     def to_dict(self) -> dict[str, Any]:
-        """Convert to dictionary representation."""
+        """Convert document to dictionary representation.
+
+        Returns:
+            Dictionary containing document data.
+        """
         return {
-            "source_name": self.source_name,
-            "source_path": self.source_path,
             "title": self.title,
-            "description": self.description,
-            "author": self.author,
-            "version": self.version,
-            "created_at": self.created_at,
-            "modified_at": self.modified_at,
-            "word_count": self.word_count,
-            "line_count": self.line_count,
-            "front_matter": self.front_matter
+            "sections": [section.to_dict() for section in self.sections],
+            "metadata": self.metadata,
+            "source_path": self.source_path,
+            "source_format": self.source_format,
+            "created_at": self.created_at.isoformat(),
+            "updated_at": self.updated_at.isoformat(),
+            "tags": self.tags,
+            "language": self.language,
         }
 
     @classmethod
-    def from_source(cls, content: str, source_name: str = "") -> "DocumentMetadata":
-        """Create metadata from source content."""
-        metadata = cls(source_name=source_name)
-        metadata.line_count = len(content.splitlines())
-        metadata.word_count = len(content.split())
+    def from_dict(cls, data: dict[str, Any]) -> "Document":
+        """Create a Document from dictionary data.
 
-        # Parse YAML front matter if present
-        front_matter = cls._parse_front_matter(content)
-        if front_matter:
-            metadata.front_matter = front_matter
-            metadata.title = front_matter.get("title", "")
-            metadata.description = front_matter.get("description", "")
-            metadata.author = front_matter.get("author", "")
-            metadata.version = front_matter.get("version", "")
+        Args:
+            data: Dictionary containing document data.
 
-        return metadata
+        Returns:
+            A new Document instance.
+        """
+        sections = [Section.from_dict(s) for s in data.get("sections", [])]
+        created_at = data.get("created_at")
+        updated_at = data.get("updated_at")
 
-    @staticmethod
-    def _parse_front_matter(content: str) -> dict[str, Any]:
-        """Parse YAML front matter from markdown content."""
-        pattern = r'^---\s*\n(.*?)\n---\s*\n'
-        match = re.match(pattern, content, re.DOTALL)
-        if not match:
-            return {}
-
-        try:
-            import yaml
-            return yaml.safe_load(match.group(1)) or {}
-        except Exception:
-            return {}
-
-
-@dataclass
-class DocumentSection:
-    """A section of a document."""
-    id: str
-    type: SectionType
-    content: str
-    level: int = 1
-    line_number: int = 0
-    semantic_tags: list[SemanticTag] = field(default_factory=list)
-    classification: ContentClassification | None = None
-    children: list["DocumentSection"] = field(default_factory=list)
-    parent_id: str | None = None
-
-    def to_dict(self) -> dict[str, Any]:
-        """Convert to dictionary representation."""
-        return {
-            "id": self.id,
-            "type": self.type.value,
-            "content": self.content,
-            "level": self.level,
-            "line_number": self.line_number,
-            "semantic_tags": [tag.to_dict() for tag in self.semantic_tags],
-            "classification": self.classification.value if self.classification else None,
-            "children": [child.to_dict() for child in self.children]
-        }
-
-
-@dataclass
-class DocumentStructure:
-    """Document structure information."""
-    heading_tree: list[dict[str, Any]] = field(default_factory=list)
-    table_of_contents: list[dict[str, Any]] = field(default_factory=list)
-    max_heading_level: int = 0
-
-    def to_dict(self) -> dict[str, Any]:
-        """Convert to dictionary representation."""
-        return {
-            "heading_tree": self.heading_tree,
-            "table_of_contents": self.table_of_contents,
-            "max_heading_level": self.max_heading_level
-        }
-
-
-@dataclass
-class Document:
-    """Complete document representation."""
-    content: str
-    metadata: DocumentMetadata
-    sections: list[DocumentSection] = field(default_factory=list)
-    structure: DocumentStructure = field(default_factory=DocumentStructure)
-    relationships: list[Relationship] = field(default_factory=list)
-    semantic_tags: dict[str, list[SemanticTag]] = field(default_factory=dict)
-
-    def to_dict(self, include_relationships: bool = True) -> dict[str, Any]:
-        """Convert to dictionary representation."""
-        result = {
-            "metadata": self.metadata.to_dict(),
-            "content": [section.to_dict() for section in self.sections],
-            "structure": self.structure.to_dict(),
-            "semantic_tags": {
-                k: [tag.to_dict() for tag in v]
-                for k, v in self.semantic_tags.items()
-            }
-        }
-
-        if include_relationships:
-            result["relationships"] = [rel.to_dict() for rel in self.relationships]
-
-        return result
-
-
-class MarkdownParser:
-    """
-    Parser for Markdown documents.
-
-    Extracts structured content with semantic information.
-    """
-
-    HEADING_PATTERN = re.compile(r'^(#{1,6})\s+(.+)$')
-    CODE_BLOCK_PATTERN = re.compile(r'^```(\w*)\s*$')
-    BLOCKQUOTE_PATTERN = re.compile(r'^>\s*(.*)$')
-    LIST_ITEM_PATTERN = re.compile(r'^(\s*)[-*+]\s+(.+)$')
-    NUMBERED_LIST_PATTERN = re.compile(r'^(\s*)\d+\.\s+(.+)$')
-    TABLE_ROW_PATTERN = re.compile(r'^\|.+\|$')
-    HORIZONTAL_RULE_PATTERN = re.compile(r'^[-*_]{3,}\s*$')
-
-    def __init__(self):
-        self._section_counter = 0
-
-    def parse(self, content: str, source_name: str = "") -> Document:
-        """Parse markdown content into structured Document."""
-        self._section_counter = 0
-
-        metadata = DocumentMetadata.from_source(content, source_name)
-        lines = content.splitlines()
-
-        sections = []
-        current_section: DocumentSection | None = None
-        pending_content: list[str] = []
-
-        for line_num, line in enumerate(lines, 1):
-            # Check for front matter
-            if line_num == 1 and line.strip() == "---":
-                continue
-
-            # Check for headings
-            heading_match = self.HEADING_PATTERN.match(line)
-            if heading_match:
-                # Save previous section
-                if current_section:
-                    current_section.content = "\n".join(pending_content).strip()
-                    sections.append(current_section)
-
-                # Create new section
-                hashes, heading_text = heading_match.groups()
-                level = len(hashes)
-                self._section_counter += 1
-                current_section = DocumentSection(
-                    id=f"section_{self._section_counter}",
-                    type=SectionType(f"heading_{level}"),
-                    content=heading_text.strip(),
-                    level=level,
-                    line_number=line_num
-                )
-                pending_content = []
-
-                # Update metadata title if this is the first H1
-                if level == 1 and not metadata.title:
-                    metadata.title = heading_text.strip()
-
-            # Check for code blocks
-            elif self.CODE_BLOCK_PATTERN.match(line):
-                if current_section:
-                    current_section.content = "\n".join(pending_content).strip()
-                    sections.append(current_section)
-
-                self._section_counter += 1
-                current_section = DocumentSection(
-                    id=f"section_{self._section_counter}",
-                    type=SectionType.CODE_BLOCK,
-                    content=line,
-                    level=0,
-                    line_number=line_num
-                )
-                pending_content = []
-                sections.append(current_section)
-                current_section = None
-
-            # Check for blockquotes
-            elif self.BLOCKQUOTE_PATTERN.match(line):
-                if current_section:
-                    pending_content.append(line)
-
-            # Check for list items
-            elif self.LIST_ITEM_PATTERN.match(line) or self.NUMBERED_LIST_PATTERN.match(line):
-                pending_content.append(line)
-
-            # Check for horizontal rules
-            elif self.HORIZONTAL_RULE_PATTERN.match(line):
-                if current_section:
-                    current_section.content = "\n".join(pending_content).strip()
-                    sections.append(current_section)
-
-                self._section_counter += 1
-                current_section = DocumentSection(
-                    id=f"section_{self._section_counter}",
-                    type=SectionType.HORIZONTAL_RULE,
-                    content="",
-                    level=0,
-                    line_number=line_num
-                )
-                pending_content = []
-
-            # Regular content
-            elif line.strip():
-                pending_content.append(line)
-
-        # Save last section
-        if current_section:
-            current_section.content = "\n".join(pending_content).strip()
-            sections.append(current_section)
-
-        # Build structure
-        structure = self._build_structure(sections)
-
-        return Document(
-            content=content,
-            metadata=metadata,
+        doc = cls(
+            title=data.get("title", ""),
             sections=sections,
-            structure=structure
+            metadata=data.get("metadata", {}),
+            source_path=data.get("source_path"),
+            source_format=data.get("source_format", "markdown"),
+            tags=data.get("tags", []),
+            language=data.get("language", "en"),
         )
 
-    def _build_structure(self, sections: list[DocumentSection]) -> DocumentStructure:
-        """Build document structure from sections."""
-        structure = DocumentStructure()
+        if created_at:
+            doc.created_at = datetime.fromisoformat(created_at)
+        if updated_at:
+            doc.updated_at = datetime.fromisoformat(updated_at)
 
-        # Build table of contents
-        for section in sections:
-            if section.type.value.startswith("heading_"):
-                structure.table_of_contents.append({
-                    "id": section.id,
-                    "title": section.content,
-                    "level": section.level,
-                    "line_number": section.line_number
-                })
-                structure.max_heading_level = max(
-                    structure.max_heading_level,
-                    section.level
-                )
+        return doc
 
-        # Build heading tree
-        structure.heading_tree = self._build_heading_tree(sections)
-
-        return structure
-
-    def _build_heading_tree(
-        self,
-        sections: list[DocumentSection]
-    ) -> list[dict[str, Any]]:
-        """Build hierarchical tree of headings."""
-        tree = []
-        stack: list[tuple[int, dict[str, Any]]] = []
-
-        for section in sections:
-            if not section.type.value.startswith("heading_"):
-                continue
-
-            node = {
-                "id": section.id,
-                "title": section.content,
-                "level": section.level,
-                "children": []
-            }
-
-            # Pop items from stack that are at same or higher level
-            while stack and stack[-1][0] >= section.level:
-                stack.pop()
-
-            if stack:
-                stack[-1][1]["children"].append(node)
-            else:
-                tree.append(node)
-
-            stack.append((section.level, node))
-
-        return tree
+    def __repr__(self) -> str:
+        """Return string representation of Document."""
+        return f"Document(title={self.title!r}, sections={len(self.sections)})"
