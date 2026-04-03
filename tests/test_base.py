@@ -1,103 +1,123 @@
-"""Tests for the base DocumentConverter abstract class."""
+"""Tests for base converter functionality."""
 
 import pytest
 
-from ai_readable_doc_generator.base import DocumentConverter
-from ai_readable_doc_generator.document import Document
+from ai_readable_doc_generator.base import BaseConverter
+from ai_readable_doc_generator.models.schema import SemanticDocument
 
 
-class ConcreteConverter(DocumentConverter):
-    """Concrete implementation for testing."""
+class ConcreteConverter(BaseConverter):
+    """Concrete implementation of BaseConverter for testing."""
 
-    def __init__(self, raise_error: bool = False):
-        self.raise_error = raise_error
+    def convert(self, source: str) -> SemanticDocument:
+        """Convert source to semantic document."""
+        return self.parse(source)
 
-    def convert(self, content: str) -> Document:
-        if self.raise_error:
-            raise ValueError("Test error")
-        doc = Document()
-        doc.title = content[:50] if content else "Untitled"
+    def parse(self, content: str) -> SemanticDocument:
+        """Parse content to semantic document."""
+        doc = SemanticDocument()
+        doc.metadata.word_count = len(content.split())
         return doc
 
 
-class TestDocumentConverter:
-    """Test cases for DocumentConverter abstract base class."""
+class TestBaseConverter:
+    """Tests for BaseConverter functionality."""
 
-    def test_converter_is_abstract(self):
-        """DocumentConverter should not be instantiable directly."""
+    @pytest.fixture
+    def converter(self) -> ConcreteConverter:
+        """Create a converter instance for testing."""
+        return ConcreteConverter(
+            add_table_of_contents=True,
+            add_statistics=True,
+            extract_semantic_tags=True,
+            importance_detection=True,
+        )
 
-        class NonImplementing:
-            pass
+    def test_initialization(self, converter: ConcreteConverter) -> None:
+        """Test converter initializes with correct defaults."""
+        assert converter.add_table_of_contents is True
+        assert converter.add_statistics is True
+        assert converter.extract_semantic_tags is True
+        assert converter.importance_detection is True
 
-        with pytest.raises(TypeError, match="abstract"):
-            converter = NonImplementing()  # type: ignore
-            converter.convert("test")
+    def test_validate_source_string(self, converter: ConcreteConverter) -> None:
+        """Test validating string source (content)."""
+        is_file, value = converter._validate_source("some content")
+        assert is_file is False
+        assert value == "some content"
 
-    def test_concrete_converter_implements_interface(self):
-        """Concrete converter should implement the convert method."""
+    def test_validate_source_path_string(self, converter: ConcreteConverter) -> None:
+        """Test validating string that looks like a path."""
+        is_file, value = converter._validate_source("/path/to/file.txt")
+        # Since file doesn't exist, it will be treated as content
+        assert value == "/path/to/file.txt"
 
-        class MyConverter(DocumentConverter):
-            def convert(self, content: str) -> Document:
-                return Document(title=content)
+    def test_validate_source_pathlib_path(self, converter: ConcreteConverter) -> None:
+        """Test validating pathlib.Path source."""
+        from pathlib import Path
+        path = Path("/path/to/file.txt")
+        is_file, value = converter._validate_source(path)
+        assert is_file is True
+        assert value == "/path/to/file.txt"
 
-        converter = MyConverter()
-        assert isinstance(converter, DocumentConverter)
+    def test_calculate_reading_time(self, converter: ConcreteConverter) -> None:
+        """Test reading time calculation."""
+        # 200 words at 200 wpm = 1 minute
+        text = "word " * 200
+        reading_time = converter._calculate_reading_time(text)
+        assert reading_time == 1.0
 
-    def test_convert_returns_document(self):
-        """convert() should return a Document instance."""
-        converter = ConcreteConverter()
-        result = converter.convert("# Hello World")
+    def test_calculate_reading_time_custom_wpm(self, converter: ConcreteConverter) -> None:
+        """Test reading time with custom words per minute."""
+        # 100 words at 100 wpm = 1 minute
+        text = "word " * 100
+        reading_time = converter._calculate_reading_time(text, words_per_minute=100)
+        assert reading_time == 1.0
 
-        assert isinstance(result, Document)
-        assert result.title == "# Hello World"[:50]
+    def test_generate_statistics(self, converter: ConcreteConverter) -> None:
+        """Test statistics generation."""
+        doc = SemanticDocument()
+        doc.metadata.word_count = 100
+        doc.metadata.reading_time_minutes = 0.5
+        doc.all_blocks = []
+        doc.sections = []
 
-    def test_convert_with_empty_content(self):
-        """convert() should handle empty content gracefully."""
-        converter = ConcreteConverter()
-        result = converter.convert("")
+        stats = converter._generate_statistics(doc)
+        assert "total_sections" in stats
+        assert "total_blocks" in stats
+        assert stats["word_count"] == 100
+        assert stats["reading_time_minutes"] == 0.5
 
-        assert isinstance(result, Document)
-        assert result.title == "Untitled"
+    def test_generate_statistics_with_content(self, converter: ConcreteConverter) -> None:
+        """Test statistics generation with actual content."""
+        from ai_readable_doc_generator.models.schema import SemanticBlock, ContentType
 
-    def test_convert_preserves_error_behavior(self):
-        """convert() should propagate errors from implementation."""
-        converter = ConcreteConverter(raise_error=True)
+        doc = SemanticDocument()
+        doc.metadata.word_count = 50
+        doc.metadata.reading_time_minutes = 0.25
+        doc.all_blocks = [
+            SemanticBlock(id="b1", content_type=ContentType.TEXT, content="Text block"),
+            SemanticBlock(id="b2", content_type=ContentType.CODE_BLOCK, content="Code block"),
+            SemanticBlock(id="b3", content_type=ContentType.LINK, content="Link"),
+        ]
+        doc.sections = [
+            SemanticBlock(id="s1", content_type=ContentType.HEADING, content="Section 1"),
+        ]
 
-        with pytest.raises(ValueError, match="Test error"):
-            converter.convert("test content")
+        stats = converter._generate_statistics(doc)
+        assert stats["total_sections"] == 1
+        assert stats["total_blocks"] == 3
+        assert "content_types" in stats
 
-    def test_converter_subclass_can_add_custom_state(self):
-        """Converter subclasses can have custom initialization."""
+    def test_parse_method(self, converter: ConcreteConverter) -> None:
+        """Test parse method returns SemanticDocument."""
+        content = "Hello world this is a test"
+        result = converter.parse(content)
+        assert isinstance(result, SemanticDocument)
+        assert result.metadata.word_count == 6
 
-        class ConfigurableConverter(DocumentConverter):
-            def __init__(self, prefix: str = ""):
-                self.prefix = prefix
-
-            def convert(self, content: str) -> Document:
-                doc = Document()
-                doc.title = f"{self.prefix}{content[:40]}"
-                return doc
-
-        converter = ConfigurableConverter(prefix="PREFIX: ")
-        result = converter.convert("test")
-
-        assert result.title == "PREFIX: test"
-
-    def test_convert_signature(self):
-        """Convert method should have the correct signature."""
-        import inspect
-
-        sig = inspect.signature(DocumentConverter.convert)
-        params = list(sig.parameters.keys())
-
-        assert "self" in params
-        assert "content" in params
-        assert len(params) == 2
-
-    def test_convert_return_type_annotation(self):
-        """Convert method should have Document return type annotation."""
-        import inspect
-
-        hints = DocumentConverter.convert.__annotations__
-        assert "return" in hints
-        assert hints["return"] is Document
+    def test_convert_method(self, converter: ConcreteConverter) -> None:
+        """Test convert method returns SemanticDocument."""
+        content = "Hello world this is a test"
+        result = converter.convert(content)
+        assert isinstance(result, SemanticDocument)

@@ -20,9 +20,11 @@ parts/
 sdist/
 var/
 wheels/
+share/python-wheels/
 *.egg-info/
 .installed.cfg
 *.egg
+MANIFEST
 
 # PyInstaller
 *.manifest
@@ -77,3 +79,7 @@ dmypy.json
 # OS
 .DS_Store
 Thumbs.db
+
+# Project specific
+outputs/
+*.log

@@ -1,18 +1,26 @@
 [build-system]
-requires = ["setuptools>=61.0", "wheel"]
-build-backend = "setuptools.build_meta"
+requires = ["hatchling"]
+build-backend = "hatchling.build"
 
 [project]
 name = "ai-readable-doc-generator"
 version = "0.1.0"
-description = "Transform documentation into AI-friendly formats with semantic tagging"
+description = "Transform documentation into AI-Agent-friendly formats with structured output and semantic tagging"
 readme = "README.md"
-license = {text = "MIT"}
+license = "MIT"
 requires-python = ">=3.11"
 authors = [
-    {name = "AI Readable Doc Generator Team"}
+    { name = "Developer", email = "dev@example.com" }
 ]
-keywords = ["documentation", "ai", "llm", "mcp", "semantic", "markdown"]
+keywords = [
+    "documentation",
+    "ai",
+    "llm",
+    "mcp",
+    "markdown",
+    "rag",
+    "knowledge-base"
+]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
@@ -20,25 +28,28 @@ classifiers = [
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+dependencies = [
+    "markdown-it-py>=3.0.0",
+    "pydantic>=2.0.0",
+    "click>=8.0.0",
+    "rich>=13.0.0",
 ]
 
 [project.optional-dependencies]
 dev = [
-    "pytest>=7.0",
-    "pytest-cov>=4.0",
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
     "ruff>=0.1.0",
-    "mypy>=1.0",
+    "mypy>=1.0.0",
 ]
 
-[project.urls]
-Homepage = "https://github.com/your-org/ai-readable-doc-generator"
-Repository = "https://github.com/your-org/ai-readable-doc-generator"
+[project.scripts]
+ai-doc-gen = "ai_readable_doc_generator.cli:main"
 
-[tool.setuptools.packages.find]
-where = ["src"]
-
-[tool.setuptools.package-dir]
-"" = "src"
+[tool.hatch.build.targets.wheel]
+packages = ["src/ai_readable_doc_generator"]
 
 [tool.ruff]
 line-length = 100
@@ -49,10 +60,11 @@ select = ["E", "F", "W", "I", "N", "UP", "B", "C4"]
 
 [tool.mypy]
 python_version = "3.11"
+strict = true
 warn_return_any = true
-warn_unused_configs = true
-ignore_missing_imports = true
+warn_unused_ignores = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = ["src", "tests"]
+python_files = ["test_*.py"]
+addopts = "-v"

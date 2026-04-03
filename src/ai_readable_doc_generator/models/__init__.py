@@ -1,23 +1,21 @@
-"""
-Models package for ai-readable-doc-generator.
+"""Schema models for AI-readable document output."""
 
-This package contains the domain models that represent the structure
-and semantics of AI-readable documents.
-"""
-
-from ai_readable_doc_generator.models.schema import OutputSchema, SchemaType
-from ai_readable_doc_generator.models.section import (
+from ai_readable_doc_generator.models.schema import (
     ContentType,
-    Section,
-    SectionType,
+    DocumentMetadata,
+    HeadingLevel,
+    SemanticSection,
+    SemanticDocument,
+    SemanticBlock,
+    RelationshipType,
 )
-from ai_readable_doc_generator.models.document import Document
 
 __all__ = [
+    "SemanticDocument",
+    "SemanticSection",
+    "SemanticBlock",
+    "DocumentMetadata",
     "ContentType",
-    "Document",
-    "OutputSchema",
-    "SchemaType",
-    "Section",
-    "SectionType",
+    "HeadingLevel",
+    "RelationshipType",
 ]

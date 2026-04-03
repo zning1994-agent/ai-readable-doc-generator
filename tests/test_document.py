@@ -1,184 +1,74 @@
-"""Tests for the Document model classes."""
+"""Tests for Document model."""
 
 import pytest
 
-from ai_readable_doc_generator.document import (
-    ContentClassification,
-    Document,
-    DocumentSection,
-    ImportanceLevel,
-    SectionType,
-    SemanticTag,
-)
-
-
-class TestSemanticTag:
-    """Test cases for SemanticTag dataclass."""
-
-    def test_create_tag(self):
-        """SemanticTag should be created with name."""
-        tag = SemanticTag(name="category")
-        assert tag.name == "category"
-        assert tag.value is None
-        assert tag.confidence == 1.0
-
-    def test_create_tag_with_value(self):
-        """SemanticTag should accept value and confidence."""
-        tag = SemanticTag(name="status", value="deprecated", confidence=0.8)
-        assert tag.name == "status"
-        assert tag.value == "deprecated"
-        assert tag.confidence == 0.8
-
-
-class TestDocumentSection:
-    """Test cases for DocumentSection class."""
-
-    def test_create_section(self):
-        """DocumentSection should be created with required fields."""
-        section = DocumentSection(id="sec1", content="Hello world")
-        assert section.id == "sec1"
-        assert section.content == "Hello world"
-        assert section.section_type == SectionType.PARAGRAPH
-        assert section.level == 0
-
-    def test_create_section_with_options(self):
-        """DocumentSection should accept optional parameters."""
-        section = DocumentSection(
-            id="sec2",
-            content="Code snippet",
-            section_type=SectionType.CODE_BLOCK,
-            level=1,
-            parent_id="sec1",
-            classification=ContentClassification.TECHNICAL,
-            importance=ImportanceLevel.HIGH,
-        )
-        assert section.id == "sec2"
-        assert section.section_type == SectionType.CODE_BLOCK
-        assert section.parent_id == "sec1"
-        assert section.classification == ContentClassification.TECHNICAL
-        assert section.importance == ImportanceLevel.HIGH
-
-    def test_add_semantic_tag(self):
-        """Section should allow adding semantic tags."""
-        section = DocumentSection(id="sec1", content="Test")
-        section.add_semantic_tag("type", "example", 0.9)
-
-        assert len(section.semantic_tags) == 1
-        assert section.semantic_tags[0].name == "type"
-        assert section.semantic_tags[0].value == "example"
-        assert section.semantic_tags[0].confidence == 0.9
-
-    def test_to_dict(self):
-        """Section should convert to dictionary."""
-        section = DocumentSection(id="sec1", content="Test")
-        section.add_semantic_tag("tag1", "value1")
-
-        result = section.to_dict()
-
-        assert result["id"] == "sec1"
-        assert result["content"] == "Test"
-        assert result["section_type"] == "paragraph"
-        assert len(result["semantic_tags"]) == 1
-        assert result["semantic_tags"][0]["name"] == "tag1"
+from ai_readable_doc_generator.document import Document
 
 
 class TestDocument:
-    """Test cases for Document class."""
+    """Tests for Document dataclass."""
 
-    def test_create_document(self):
-        """Document should be created with defaults."""
-        doc = Document()
-        assert doc.title == ""
-        assert doc.description == ""
-        assert doc.sections == []
-        assert doc.source_format == "markdown"
+    @pytest.fixture
+    def sample_content(self) -> str:
+        """Sample Markdown content."""
+        return "# Hello World\n\nThis is a test document."
 
-    def test_create_document_with_fields(self):
-        """Document should accept field values."""
-        doc = Document(
-            title="Test Doc",
-            description="A test document",
-            source_format="markdown",
-            source_path="/path/to/doc.md",
-        )
-        assert doc.title == "Test Doc"
-        assert doc.description == "A test document"
-        assert doc.source_format == "markdown"
+    def test_create_document(self, sample_content: str) -> None:
+        """Test creating a document."""
+        doc = Document(content=sample_content)
+        assert doc.content == sample_content
+        assert doc.source_path is None
+        assert doc.raw_tokens == []
+        assert doc.ast is None
+
+    def test_create_document_with_path(self, sample_content: str) -> None:
+        """Test creating a document with source path."""
+        doc = Document(content=sample_content, source_path="/path/to/doc.md")
         assert doc.source_path == "/path/to/doc.md"
 
-    def test_add_section(self):
-        """Document should allow adding sections."""
-        doc = Document()
-        section = DocumentSection(id="sec1", content="Test")
-        doc.add_section(section)
+    def test_document_metadata(self, sample_content: str) -> None:
+        """Test document metadata."""
+        doc = Document(content=sample_content)
+        assert doc.metadata["source_format"] == "markdown"
+        assert doc.metadata["title"] is None
+        assert doc.metadata["description"] is None
 
-        assert len(doc.sections) == 1
-        assert doc.sections[0].id == "sec1"
+    def test_title_property(self, sample_content: str) -> None:
+        """Test title property getter and setter."""
+        doc = Document(content=sample_content)
+        assert doc.title is None
 
-    def test_add_semantic_tag(self):
-        """Document should allow adding semantic tags."""
-        doc = Document()
-        doc.add_semantic_tag("author", "John Doe")
+        doc.title = "Test Title"
+        assert doc.title == "Test Title"
+        assert doc.metadata["title"] == "Test Title"
 
-        assert len(doc.semantic_tags) == 1
-        assert doc.semantic_tags[0].name == "author"
-        assert doc.semantic_tags[0].value == "John Doe"
+    def test_word_count_property(self, sample_content: str) -> None:
+        """Test word count property."""
+        doc = Document(content=sample_content)
+        expected_count = len(sample_content.split())
+        assert doc.word_count == expected_count
 
-    def test_get_all_sections_flat(self):
-        """get_all_sections should return all top-level sections."""
-        doc = Document()
-        doc.add_section(DocumentSection(id="sec1", content="Test 1"))
-        doc.add_section(DocumentSection(id="sec2", content="Test 2"))
+    def test_empty_content_word_count(self) -> None:
+        """Test word count with empty content."""
+        doc = Document(content="")
+        assert doc.word_count == 0
 
-        sections = doc.get_all_sections()
-        assert len(sections) == 2
+    def test_add_token(self, sample_content: str) -> None:
+        """Test adding tokens to document."""
+        doc = Document(content=sample_content)
+        doc.add_token({"type": "heading", "content": "test"})
+        assert len(doc.raw_tokens) == 1
+        assert doc.raw_tokens[0]["type"] == "heading"
 
-    def test_get_all_sections_with_children(self):
-        """get_all_sections should include nested children."""
-        doc = Document()
-        parent = DocumentSection(id="parent", content="Parent")
-        child = DocumentSection(id="child", content="Child", parent_id="parent")
-        parent.children.append(child)
-        doc.add_section(parent)
+    def test_set_ast(self, sample_content: str) -> None:
+        """Test setting AST."""
+        doc = Document(content=sample_content)
+        mock_ast = {"type": "root", "children": []}
+        doc.set_ast(mock_ast)
+        assert doc.ast == mock_ast
 
-        sections = doc.get_all_sections()
-        assert len(sections) == 2
-        assert sections[0].id == "parent"
-        assert sections[1].id == "child"
-
-    def test_to_dict(self):
-        """Document should convert to dictionary."""
-        doc = Document(title="Test")
-        doc.add_section(DocumentSection(id="sec1", content="Content"))
-
-        result = doc.to_dict()
-
-        assert result["title"] == "Test"
-        assert len(result["sections"]) == 1
-        assert result["sections"][0]["id"] == "sec1"
-        assert result["source_format"] == "markdown"
-
-
-class TestEnums:
-    """Test cases for enum classes."""
-
-    def test_section_type_values(self):
-        """SectionType should have expected values."""
-        assert SectionType.TITLE.value == "title"
-        assert SectionType.PARAGRAPH.value == "paragraph"
-        assert SectionType.CODE_BLOCK.value == "code_block"
-        assert SectionType.LIST.value == "list"
-
-    def test_content_classification_values(self):
-        """ContentClassification should have expected values."""
-        assert ContentClassification.NARRATIVE.value == "narrative"
-        assert ContentClassification.TECHNICAL.value == "technical"
-        assert ContentClassification.REFERENCE.value == "reference"
-        assert ContentClassification.API_DOCUMENTATION.value == "api_documentation"
-
-    def test_importance_level_order(self):
-        """ImportanceLevel should have correct numeric ordering."""
-        assert ImportanceLevel.CRITICAL.value == 1
-        assert ImportanceLevel.HIGH.value == 2
-        assert ImportanceLevel.MEDIUM.value == 3
-        assert ImportanceLevel.LOW.value == 4
+    def test_metadata_custom_fields(self, sample_content: str) -> None:
+        """Test custom metadata fields."""
+        doc = Document(content=sample_content)
+        doc.metadata["custom_key"] = "custom_value"
+        assert doc.metadata["custom_key"] == "custom_value"
