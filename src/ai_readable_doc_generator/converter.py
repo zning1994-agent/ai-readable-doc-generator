@@ -761,3 +761,119 @@ class PlaintextConverter(BaseConverter):
     def get_output_format(self) -> str:
         """Get output format."""
         return "json"
+
+
+class Converter:
+    """Main converter class that orchestrates document conversion.
+    
+    This class provides a unified interface for converting documents
+    from various formats to AI-readable Document objects.
+    """
+    
+    def __init__(self, options: Optional[ConversionOptions] = None):
+        """Initialize the converter.
+        
+        Args:
+            options: Configuration options for conversion.
+        """
+        self.options = options or ConversionOptions()
+        self.markdown_converter = MarkdownConverter(self.options)
+        
+    def convert_file(self, file_path: "Path") -> "Document":
+        """Convert a file to a Document object.
+        
+        Args:
+            file_path: Path to the file to convert.
+            
+        Returns:
+            Document object with parsed content.
+            
+        Raises:
+            ValueError: If file format is not supported.
+        """
+        from pathlib import Path
+        from ai_readable_doc_generator.models.document import Document, DocumentMetadata
+        from ai_readable_doc_generator.models.section import Section, SectionType
+        
+        file_path = Path(file_path)
+        suffix = file_path.suffix.lower()
+        
+        if suffix not in [".md", ".markdown", ".mdown"]:
+            raise ValueError(f"Unsupported file format: {suffix}")
+        
+        content = file_path.read_text(encoding="utf-8")
+        
+        # Use markdown converter to get structured data
+        result = self.markdown_converter.convert(content)
+        
+        if not result.success:
+            raise ValueError(f"Conversion failed: {result.errors}")
+        
+        # Parse the JSON output into sections
+        data = json.loads(result.content)
+        
+        # Convert to Document model
+        sections = self._parse_sections(data.get("sections", []))
+        
+        metadata = DocumentMetadata()
+        if "metadata" in data:
+            meta = data["metadata"]
+            metadata.author = meta.get("author")
+            metadata.version = meta.get("version")
+            metadata.source_format = meta.get("source_format", "markdown")
+        metadata.source_path = str(file_path)
+        
+        # Extract title from first heading if available
+        title = file_path.stem
+        for section in sections:
+            if section.heading:
+                title = section.heading
+                break
+        
+        return Document(
+            title=title,
+            sections=sections,
+            metadata=metadata,
+            source_path=str(file_path),
+        )
+    
+    def _parse_sections(self, sections_data: list) -> list:
+        """Parse section data into Section objects.
+        
+        Args:
+            sections_data: List of section dictionaries.
+            
+        Returns:
+            List of Section objects.
+        """
+        from ai_readable_doc_generator.models.section import Section, SectionType
+        
+        sections = []
+        for sec in sections_data:
+            sec_type = sec.get("type", "paragraph")
+            level = sec.get("level", 1)
+            content = sec.get("content", "")
+            heading = sec.get("heading") or (content if sec_type == "heading" else None)
+            
+            # Map type string to SectionType
+            type_map = {
+                "heading": SectionType.HEADING,
+                "paragraph": SectionType.PARAGRAPH,
+                "code": SectionType.CODE_BLOCK,
+                "blockquote": SectionType.BLOCKQUOTE,
+                "list": SectionType.LIST,
+                "list_item": SectionType.LIST,
+                "table": SectionType.TABLE,
+                "horizontal_rule": SectionType.HORIZONTAL_RULE,
+            }
+            section_type = type_map.get(sec_type, SectionType.PARAGRAPH)
+            
+            section = Section(
+                section_type=section_type,
+                content=content,
+                level=level,
+                heading=heading,
+            )
+            sections.append(section)
+        
+        return sections

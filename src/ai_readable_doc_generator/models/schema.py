@@ -5,6 +5,15 @@ from enum import Enum
 from typing import Any
 
 
+class SchemaType(Enum):
+    """Schema type enumeration for different output configurations."""
+
+    BASIC = "basic"
+    DETAILED = "detailed"
+    MINIMAL = "minimal"
+    COMPREHENSIVE = "comprehensive"
+
+
 class OutputFormat(Enum):
     """Supported output formats."""
 
@@ -12,6 +21,32 @@ class OutputFormat(Enum):
     YAML = "yaml"
     MCP = "mcp"
     MARKDOWN = "markdown"
+
+
+@dataclass
+class OutputSchema:
+    """Schema configuration for document output.
+
+    Attributes:
+        schema_type: The type of schema to use.
+        include_metadata: Whether to include metadata in output.
+        include_tags: Whether to include tags in output.
+        include_importance: Whether to include importance levels.
+        flatten: Whether to flatten nested sections.
+        custom_fields: Custom fields to add to output.
+    """
+
+    schema_type: SchemaType = SchemaType.BASIC
+    include_metadata: bool = True
+    include_tags: bool = True
+    include_importance: bool = True
+    flatten: bool = False
+    custom_fields: dict[str, Any] | None = None
+
+    def __post_init__(self) -> None:
+        """Validate schema after initialization."""
+        if self.custom_fields is None:
+            self.custom_fields = {}
 
 
 @dataclass

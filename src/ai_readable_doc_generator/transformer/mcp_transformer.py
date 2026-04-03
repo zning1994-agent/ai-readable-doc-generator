@@ -140,24 +140,28 @@ class MCPTransformer(BaseTransformer):
         Returns:
             MCP-formatted section dictionary.
         """
+        # Generate id from heading or content
+        section_id = section.heading or (section.content[:30] if section.content else "section")
+        section_id = section_id.lower().replace(" ", "-")[:50]
+        
         mcp_section: dict[str, Any] = {
-            "id": section.id,
-            "content": section.content,
-            "type": self._map_content_type(section.content_type),
+            "id": section_id,
+            "content": section.content or section.heading or "",
+            "type": self._map_content_type(section.section_type),
             "level": section.level,
             "purpose": self._infer_section_purpose(section),
         }
+        
+        if section.heading:
+            mcp_section["heading"] = section.heading
 
         if section.children:
             mcp_section["subsections"] = [
                 self._transform_section_for_mcp(child) for child in section.children
             ]
 
-        if section.tags:
-            mcp_section["classifications"] = section.tags
-
-        if section.importance >= 4:  # High importance
-            mcp_section["is_critical"] = True
+        if section.semantic_tags:
+            mcp_section["classifications"] = [t.name for t in section.semantic_tags]
 
         return mcp_section
 
@@ -170,21 +174,18 @@ class MCPTransformer(BaseTransformer):
         Returns:
             MCP-compatible content type string.
         """
+        from ai_readable_doc_generator.models.section import SectionType
+        
         type_mapping = {
-            ContentType.TITLE: "title",
-            ContentType.HEADING: "heading",
-            ContentType.PARAGRAPH: "prose",
-            ContentType.CODE_BLOCK: "code",
-            ContentType.LIST: "list",
-            ContentType.LIST_ITEM: "list_item",
-            ContentType.BLOCKQUOTE: "quote",
-            ContentType.TABLE: "table",
-            ContentType.IMAGE: "image",
-            ContentType.LINK: "link",
-            ContentType.HORIZONTAL_RULE: "divider",
-            ContentType.HTML: "html",
-            ContentType.FRONTMATTER: "metadata",
-            ContentType.UNKNOWN: "unknown",
+            SectionType.HEADING: "heading",
+            SectionType.PARAGRAPH: "prose",
+            SectionType.CODE_BLOCK: "code",
+            SectionType.LIST: "list",
+            SectionType.BLOCKQUOTE: "quote",
+            SectionType.TABLE: "table",
+            SectionType.IMAGE: "image",
+            SectionType.LINK: "link",
+            SectionType.HORIZONTAL_RULE: "divider",
         }
         return type_mapping.get(content_type, "unknown")
 
@@ -197,6 +198,8 @@ class MCPTransformer(BaseTransformer):
         Returns:
             Purpose string describing the section's role.
         """
+        from ai_readable_doc_generator.models.section import SectionType
+        
         content_lower = section.content.lower()
 
         # Check for common purpose indicators
@@ -225,11 +228,11 @@ class MCPTransformer(BaseTransformer):
             for word in ["troubleshoot", "faq", "question"]
         ):
             return "support"
-        if section.content_type in (ContentType.CODE_BLOCK,):
+        if section.section_type == SectionType.CODE_BLOCK:
             return "example"
 
-        # Default based on content type
-        if section.content_type == ContentType.HEADING:
+        # Default based on section type
+        if section.section_type == SectionType.HEADING:
             return "topic"
         return "content"
 
@@ -243,22 +246,52 @@ class MCPTransformer(BaseTransformer):
             Metadata dictionary.
         """
         metadata: dict[str, Any] = {
-            "source_format": document.source_format,
-            "language": document.language,
+            "source_format": "markdown",
+            "language": document.metadata.language if document.metadata else "en",
             "section_count": len(document.sections),
             "total_content_length": sum(
-                len(s.content) for s in document.get_all_sections()
+                len(s.content or "") for s in document.sections
             ),
         }
 
         if document.source_path:
             metadata["source_path"] = document.source_path
 
-        if document.tags:
-            metadata["document_tags"] = document.tags
+        if document.semantic_tags:
+            metadata["document_tags"] = [t.name for t in document.semantic_tags]
 
         return metadata
 
+    def _get_all_sections(self, document: Document) -> list:
+        """Get all sections including nested ones.
+        
+        Args:
+            document: The document to get sections from.
+            
+        Returns:
+            List of all sections.
+        """
+        all_sections = []
+        for section in document.sections:
+            all_sections.append(section)
+            all_sections.extend(self._get_child_sections(section))
+        return all_sections
+    
+    def _get_child_sections(self, section: Any) -> list:
+        """Get all child sections recursively.
+        
+        Args:
+            section: The section to get children from.
+            
+        Returns:
+            List of all child sections.
+        """
+        children = []
+        for child in section.children:
+            children.append(child)
+            children.extend(self._get_child_sections(child))
+        return children
+    
     def _create_annotations(self, document: Document) -> dict[str, Any]:
         """Create AI annotations for MCP format.
 
@@ -268,18 +301,20 @@ class MCPTransformer(BaseTransformer):
         Returns:
             Annotations dictionary for AI processing.
         """
-        sections = document.get_all_sections()
-        content_types = [s.content_type for s in sections]
+        from ai_readable_doc_generator.models.section import SectionType
+        
+        sections = self._get_all_sections(document)
+        section_types = [s.section_type for s in sections]
         purposes = [self._infer_section_purpose(s) for s in sections]
 
         return {
             "structure_type": self._classify_document_structure(document),
-            "content_type_distribution": self._count_content_types(content_types),
+            "content_type_distribution": self._count_section_types(section_types),
             "purpose_distribution": self._count_purposes(purposes),
-            "has_code_examples": ContentType.CODE_BLOCK in content_types,
+            "has_code_examples": SectionType.CODE_BLOCK in section_types,
             "is_api_reference": "reference" in purposes,
             "has_installation_guide": any(
-                "install" in s.content.lower() for s in sections
+                "install" in (s.content or "").lower() for s in sections
             ),
         }
 
@@ -292,10 +327,12 @@ class MCPTransformer(BaseTransformer):
         Returns:
             Semantic hints dictionary.
         """
-        sections = document.get_all_sections()
+        from ai_readable_doc_generator.models.section import SectionType
+        
+        sections = self._get_all_sections(document)
 
         # Analyze headings for structure
-        headings = [s for s in sections if s.content_type == ContentType.HEADING]
+        headings = [s for s in sections if s.section_type == SectionType.HEADING]
 
         hints: dict[str, Any] = {
             "primary_topic": document.title,

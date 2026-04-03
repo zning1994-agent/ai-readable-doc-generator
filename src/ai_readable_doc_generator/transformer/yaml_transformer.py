@@ -1,57 +1,57 @@
-"""JSON transformer for structured document output."""
+"""YAML transformer for structured document output."""
 
-import json
 from typing import Any
 
+import yaml
+
 from ai_readable_doc_generator.models.document import Document
-from ai_readable_doc_generator.models.schema import OutputSchema, SchemaType
 from ai_readable_doc_generator.transformer.base_transformer import BaseTransformer
 
 
-class JSONTransformer(BaseTransformer):
-    """Transformer that converts documents to JSON format.
+class YAMLTransformer(BaseTransformer):
+    """Transformer that converts documents to YAML format.
 
     Supports configurable output schemas with various levels of detail,
     including semantic tagging, metadata, and importance levels.
 
     Example:
         >>> from ai_readable_doc_generator import Document, Section, ContentType
-        >>> from ai_readable_doc_generator.transformer import JSONTransformer
+        >>> from ai_readable_doc_generator.transformer import YAMLTransformer
         >>> doc = Document(title="Test", sections=[
         ...     Section("Hello World", content_type=ContentType.PARAGRAPH)
         ... ])
-        >>> transformer = JSONTransformer()
-        >>> json_output = transformer.transform(doc)
-        >>> print(json_output)
+        >>> transformer = YAMLTransformer()
+        >>> yaml_output = transformer.transform(doc)
+        >>> print(yaml_output)
     """
 
     def __init__(
         self,
-        schema: OutputSchema | None = None,
+        schema: Any | None = None,
         validate_output: bool = True,
         pretty: bool = True,
-        indent: int = 2,
+        default_flow_style: bool = False,
     ) -> None:
-        """Initialize the JSON transformer.
+        """Initialize the YAML transformer.
 
         Args:
             schema: Output schema configuration.
             validate_output: Whether to validate transformed output.
-            pretty: Whether to pretty-print the JSON output.
-            indent: Number of spaces for indentation.
+            pretty: Whether to produce pretty-printed YAML output.
+            default_flow_style: Whether to use flow style for sequences.
         """
         super().__init__(schema=schema, validate_output=validate_output)
         self.pretty = pretty
-        self.indent = indent
+        self.default_flow_style = default_flow_style
 
     def transform(self, document: Document) -> str:
-        """Transform a document to JSON format.
+        """Transform a document to YAML format.
 
         Args:
             document: The document to transform.
 
         Returns:
-            JSON string representation of the document.
+            YAML string representation of the document.
 
         Raises:
             ValueError: If document validation fails.
@@ -62,9 +62,12 @@ class JSONTransformer(BaseTransformer):
         data = self._transform_document(document)
         data = self._apply_schema_options(data)
 
-        if self.pretty:
-            return json.dumps(data, indent=self.indent, ensure_ascii=False)
-        return json.dumps(data, ensure_ascii=False)
+        return yaml.dump(
+            data,
+            allow_unicode=True,
+            sort_keys=False,
+            default_flow_style=self.default_flow_style if not self.pretty else False,
+        )
 
     def _transform_document(self, document: Document) -> dict[str, Any]:
         """Transform a document into a dictionary.
@@ -134,7 +137,7 @@ class JSONTransformer(BaseTransformer):
         return result
 
     def transform_to_dict(self, document: Document) -> dict[str, Any]:
-        """Transform a document to a dictionary (without JSON serialization).
+        """Transform a document to a dictionary (without YAML serialization).
 
         Args:
             document: The document to transform.
@@ -148,22 +151,22 @@ class JSONTransformer(BaseTransformer):
         data = self._transform_document(document)
         return self._apply_schema_options(data)
 
-    def parse(self, json_str: str) -> Document:
-        """Parse a JSON string back into a Document.
+    def parse(self, yaml_str: str) -> Document:
+        """Parse a YAML string back into a Document.
 
         Args:
-            json_str: JSON string to parse.
+            yaml_str: YAML string to parse.
 
         Returns:
-            Document reconstructed from JSON.
+            Document reconstructed from YAML.
 
         Raises:
-            ValueError: If JSON parsing fails.
+            ValueError: If YAML parsing fails.
         """
         try:
-            data = json.loads(json_str)
-        except json.JSONDecodeError as e:
-            raise ValueError(f"Invalid JSON: {e}") from e
+            data = yaml.safe_load(yaml_str)
+        except yaml.YAMLError as e:
+            raise ValueError(f"Invalid YAML: {e}") from e
 
         return self._parse_document(data)
 
@@ -222,5 +225,5 @@ class JSONTransformer(BaseTransformer):
         )
 
     def __repr__(self) -> str:
-        """Return string representation of JSON transformer."""
-        return f"JSONTransformer(pretty={self.pretty}, schema={self.schema.schema_type.value})"
+        """Return string representation of YAML transformer."""
+        return f"YAMLTransformer(pretty={self.pretty}, schema={self.schema.schema_type.value})"

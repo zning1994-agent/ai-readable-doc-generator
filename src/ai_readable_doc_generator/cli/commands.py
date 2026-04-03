@@ -14,6 +14,7 @@ from ai_readable_doc_generator.converter import Converter
 from ai_readable_doc_generator.models.document import DocumentMetadata
 from ai_readable_doc_generator.transformer.json_transformer import JSONTransformer
 from ai_readable_doc_generator.transformer.mcp_transformer import MCPTransformer
+from ai_readable_doc_generator.transformer.yaml_transformer import YAMLTransformer
 
 
 console = Console()
@@ -63,13 +64,14 @@ def cli() -> None:
     help="Pretty print JSON output. Default is True.",
 )
 @click.option(
-    "--mcp/--no-mcp",
-    "use_mcp_format",
-    default=False,
-    help="Output in MCP-compatible format. Default is False.",
+    "--format",
+    "output_format",
+    type=click.Choice(["json", "yaml", "mcp"], case_sensitive=False),
+    default="json",
+    help="Output format: json, yaml, or mcp. Default is json.",
 )
-def convert(input_file: Path, output_file: Optional[Path], pretty: bool, use_mcp_format: bool) -> None:
-    """Convert a single Markdown file to AI-readable JSON format.
+def convert(input_file: Path, output_file: Optional[Path], pretty: bool, output_format: str) -> None:
+    """Convert a single Markdown file to AI-readable format.
     
     INPUT_FILE: Path to the Markdown file to convert.
     
@@ -79,7 +81,9 @@ def convert(input_file: Path, output_file: Optional[Path], pretty: bool, use_mcp
     
         ai-readable-doc-gen convert README.md -o output.json --pretty
     
-        ai-readable-doc-gen convert README.md --mcp -o mcp_output.json
+        ai-readable-doc-gen convert README.md --format yaml -o output.yaml
+    
+        ai-readable-doc-gen convert README.md --format mcp -o mcp_output.json
     """
     try:
         converter = Converter()
@@ -93,8 +97,11 @@ def convert(input_file: Path, output_file: Optional[Path], pretty: bool, use_mcp
             
             result = converter.convert_file(input_file)
             
-            if use_mcp_format:
+            if output_format == "mcp":
                 transformer = MCPTransformer()
+                output_content = transformer.transform(result)
+            elif output_format == "yaml":
+                transformer = YAMLTransformer(pretty=pretty)
                 output_content = transformer.transform(result)
             else:
                 transformer = JSONTransformer(pretty=pretty)
@@ -106,7 +113,8 @@ def convert(input_file: Path, output_file: Optional[Path], pretty: bool, use_mcp
         if output_file:
             output_path = output_file
         else:
-            suffix = ".mcp.json" if use_mcp_format else ".json"
+            suffix_map = {"mcp": ".mcp.json", "yaml": ".yaml", "json": ".json"}
+            suffix = suffix_map.get(output_format, ".json")
             output_path = resolve_output_path(input_file, None, suffix)
         
         # Write output
@@ -147,10 +155,11 @@ def convert(input_file: Path, output_file: Optional[Path], pretty: bool, use_mcp
     help="Pretty print JSON output. Default is True.",
 )
 @click.option(
-    "--mcp/--no-mcp",
-    "use_mcp_format",
-    default=False,
-    help="Output in MCP-compatible format. Default is False.",
+    "--format",
+    "output_format",
+    type=click.Choice(["json", "yaml", "mcp"], case_sensitive=False),
+    default="json",
+    help="Output format: json, yaml, or mcp. Default is json.",
 )
 def batch(
     input_paths: tuple[Path, ...],
@@ -158,7 +167,7 @@ def batch(
     pattern: str,
     recursive: bool,
     pretty: bool,
-    use_mcp_format: bool,
+    output_format: str,
 ) -> None:
     """Convert multiple Markdown files in batch mode.
     
@@ -175,7 +184,7 @@ def batch(
     
         ai-readable-doc-gen batch docs/ --pattern "*.md" --recursive -o output/
     
-        ai-readable-doc-gen batch . --mcp --pattern "*.md"
+        ai-readable-doc-gen batch . --format yaml --pattern "*.md"
     """
     # Collect all input files
     input_files: list[Path] = []
@@ -194,13 +203,17 @@ def batch(
         console.print("[yellow]No Markdown files found to convert.[/yellow]")
         return
     
-    # Setup transformer
-    if use_mcp_format:
-        transformer_class = MCPTransformer
-        suffix = ".mcp.json"
-    else:
-        transformer_class = lambda: JSONTransformer(pretty=pretty)
-        suffix = ".json"
+    # Setup transformer based on format
+    suffix_map = {"mcp": ".mcp.json", "yaml": ".yaml", "json": ".json"}
+    suffix = suffix_map.get(output_format, ".json")
+    
+    def get_transformer():
+        if output_format == "mcp":
+            return MCPTransformer()
+        elif output_format == "yaml":
+            return YAMLTransformer(pretty=pretty)
+        else:
+            return JSONTransformer(pretty=pretty)
     
     # Process files
     results: list[tuple[Path, bool, str]] = []  # (path, success, message)
@@ -218,7 +231,7 @@ def batch(
         for input_file in input_files:
             try:
                 result = converter.convert_file(input_file)
-                transformer = transformer_class()
+                transformer = get_transformer()
                 output_content = transformer.transform(result)
                 
                 # Determine output path
@@ -281,7 +294,7 @@ def mcp(input_file: Path, output_file: Optional[Path]) -> None:
     """
     # Delegate to convert command with MCP mode
     ctx = click.get_current_context()
-    ctx.invoke(convert, input_file=input_file, output_file=output_file, pretty=True, use_mcp_format=True)
+    ctx.invoke(convert, input_file=input_file, output_file=output_file, pretty=True, output_format="mcp")
 
 
 @cli.command()
@@ -346,6 +359,7 @@ with semantic tagging for optimal LLM and AI Agent consumption.
 
 [bold]Supported Output Formats:[/bold]
   • JSON (structured)
+  • YAML (structured)
   • MCP-compatible JSON
 
 [bold]Features:[/bold]
