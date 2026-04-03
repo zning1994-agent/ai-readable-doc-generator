@@ -1,4 +1,4 @@
-"""Output schema model for configurable output formats."""
+"""Schema definitions for AI-readable document output."""
 
 from dataclasses import dataclass, field
 from enum import Enum
@@ -6,140 +6,143 @@ from typing import Any
 
 
 class OutputFormat(Enum):
-    """Enumeration of supported output formats."""
-
+    """Supported output formats."""
     JSON = "json"
     YAML = "yaml"
     MCP = "mcp"
 
 
+class SectionType(Enum):
+    """Types of document sections with semantic meaning."""
+    TITLE = "title"
+    HEADING_1 = "heading_1"
+    HEADING_2 = "heading_2"
+    HEADING_3 = "heading_3"
+    HEADING_4 = "heading_4"
+    HEADING_5 = "heading_5"
+    HEADING_6 = "heading_6"
+    PARAGRAPH = "paragraph"
+    CODE_BLOCK = "code_block"
+    BLOCKQUOTE = "blockquote"
+    LIST_ITEM = "list_item"
+    TABLE = "table"
+    HORIZONTAL_RULE = "horizontal_rule"
+    FRONT_MATTER = "front_matter"
+
+
+class ContentClassification(Enum):
+    """Classification of content within sections."""
+    NARRATIVE = "narrative"
+    TECHNICAL = "technical"
+    REFERENCE = "reference"
+    EXAMPLE = "example"
+    WARNING = "warning"
+    NOTE = "note"
+    IMPORTANT = "important"
+    API_DOC = "api_documentation"
+    CONFIGURATION = "configuration"
+    TROUBLESHOOTING = "troubleshooting"
+
+
+class Importance(Enum):
+    """Importance level of content for AI processing."""
+    CRITICAL = 3
+    HIGH = 2
+    NORMAL = 1
+    LOW = 0
+
+
 @dataclass
-class SchemaField:
-    """Represents a field in the output schema.
-
-    Attributes:
-        name: Field name in output.
-        path: JSONPath to source data.
-        transform: Optional transformation function name.
-        required: Whether field is required.
-        default: Default value if source is missing.
-    """
-
+class SemanticTag:
+    """Semantic tag applied to document content."""
     name: str
-    path: str
-    transform: str | None = None
-    required: bool = True
-    default: Any = None
-
-
-@dataclass
-class OutputSchema:
-    """Configuration for output schema.
-
-    Attributes:
-        format: Output format type.
-        include_metadata: Whether to include document metadata.
-        include_toc: Whether to include table of contents.
-        semantic_tags: Whether to include semantic tag information.
-        fields: Custom fields configuration.
-    """
-
-    format: OutputFormat = OutputFormat.JSON
-    include_metadata: bool = True
-    include_toc: bool = True
-    semantic_tags: bool = True
-    fields: list[SchemaField] = field(default_factory=list)
+    value: str
+    confidence: float = 1.0
+    source: str = "auto"
 
     def to_dict(self) -> dict[str, Any]:
-        """Convert schema to dictionary representation.
-
-        Returns:
-            Dictionary containing schema configuration.
-        """
+        """Convert to dictionary representation."""
         return {
-            "format": self.format.value,
-            "include_metadata": self.include_metadata,
-            "include_toc": self.include_toc,
-            "semantic_tags": self.semantic_tags,
-            "fields": [
-                {
-                    "name": f.name,
-                    "path": f.path,
-                    "transform": f.transform,
-                    "required": f.required,
-                    "default": f.default,
-                }
-                for f in self.fields
-            ],
+            "name": self.name,
+            "value": self.value,
+            "confidence": self.confidence,
+            "source": self.source
         }
 
-    @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "OutputSchema":
-        """Create schema from dictionary representation.
 
-        Args:
-            data: Dictionary containing schema configuration.
+@dataclass
+class Relationship:
+    """Relationship between document elements."""
+    source_id: str
+    target_id: str
+    relationship_type: str
+    metadata: dict[str, Any] = field(default_factory=dict)
 
-        Returns:
-            OutputSchema instance.
-        """
-        format_value = data.get("format", "json")
-        output_format = OutputFormat(format_value)
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary representation."""
+        return {
+            "source_id": self.source_id,
+            "target_id": self.target_id,
+            "type": self.relationship_type,
+            "metadata": self.metadata
+        }
 
-        fields = [
-            SchemaField(
-                name=f["name"],
-                path=f["path"],
-                transform=f.get("transform"),
-                required=f.get("required", True),
-                default=f.get("default"),
-            )
-            for f in data.get("fields", [])
-        ]
 
-        return cls(
-            format=output_format,
-            include_metadata=data.get("include_metadata", True),
-            include_toc=data.get("include_toc", True),
-            semantic_tags=data.get("semantic_tags", True),
-            fields=fields,
-        )
+@dataclass
+class SchemaDefinition:
+    """
+    Schema definition for structured document output.
 
-    @classmethod
-    def default_json(cls) -> "OutputSchema":
-        """Create default JSON output schema.
+    This defines the expected structure of AI-readable documents
+    with explicit semantic annotations.
+    """
+    version: str = "1.0"
+    format_version: str = "1.0"
 
-        Returns:
-            OutputSchema with default JSON configuration.
-        """
-        return cls(
-            format=OutputFormat.JSON,
-            include_metadata=True,
-            include_toc=True,
-            semantic_tags=True,
-            fields=[
-                SchemaField("title", "title", required=False),
-                SchemaField("content", "sections[*].content"),
-                SchemaField("type", "sections[*].type"),
-                SchemaField("level", "sections[*].level"),
-            ],
-        )
+    def to_dict(self) -> dict[str, Any]:
+        """Convert schema to dictionary representation."""
+        return {
+            "version": self.version,
+            "format_version": self.format_version,
+            "sections": {
+                "required": ["id", "type", "content"],
+                "properties": {
+                    "id": {"type": "string"},
+                    "type": {"type": "string", "enum": [t.value for t in SectionType]},
+                    "content": {"type": "string"},
+                    "level": {"type": "integer", "minimum": 1, "maximum": 6},
+                    "semantic_tags": {
+                        "type": "array",
+                        "items": {"$ref": "#/definitions/semantic_tag"}
+                    },
+                    "metadata": {"type": "object"}
+                }
+            },
+            "definitions": {
+                "semantic_tag": {
+                    "name": {"type": "string"},
+                    "value": {"type": "string"},
+                    "confidence": {"type": "number", "minimum": 0, "maximum": 1}
+                },
+                "relationship": {
+                    "source_id": {"type": "string"},
+                    "target_id": {"type": "string"},
+                    "type": {"type": "string"}
+                }
+            }
+        }
 
-    @classmethod
-    def default_mcp(cls) -> "OutputSchema":
-        """Create default MCP-compatible output schema.
 
-        Returns:
-            OutputSchema with MCP configuration.
-        """
-        return cls(
-            format=OutputFormat.MCP,
-            include_metadata=True,
-            include_toc=True,
-            semantic_tags=True,
-            fields=[
-                SchemaField("context", "title"),
-                SchemaField("sections", "sections"),
-                SchemaField("relationships", "metadata.relationships"),
-            ],
-        )
+# Default semantic tag mappings for common Markdown patterns
+DEFAULT_SEMANTIC_MAPPINGS = {
+    "note": ContentClassification.NOTE,
+    "info": ContentClassification.NOTE,
+    "warning": ContentClassification.WARNING,
+    "caution": ContentClassification.WARNING,
+    "danger": ContentClassification.WARNING,
+    "tip": ContentClassification.EXAMPLE,
+    "example": ContentClassification.EXAMPLE,
+    "important": ContentClassification.IMPORTANT,
+    "see also": ContentClassification.REFERENCE,
+    "related": ContentClassification.REFERENCE,
+}

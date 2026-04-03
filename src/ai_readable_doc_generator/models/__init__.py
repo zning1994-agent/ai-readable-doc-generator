@@ -1,13 +1,26 @@
-"""Models package for ai-readable-doc-generator."""
+"""Models package for structured document representation."""
 
-from ai_readable_doc_generator.models.document import Document, DocumentMetadata
-from ai_readable_doc_generator.models.schema import OutputSchema
-from ai_readable_doc_generator.models.section import Section, SectionType
+from .document import Document, DocumentMetadata
+from .schema import (
+    OutputFormat,
+    SectionType,
+    ContentClassification,
+    Importance,
+    SemanticTag,
+    Relationship,
+    SchemaDefinition
+)
+from .section import Section
 
 __all__ = [
     "Document",
     "DocumentMetadata",
-    "OutputSchema",
-    "Section",
+    "OutputFormat",
     "SectionType",
+    "ContentClassification",
+    "Importance",
+    "SemanticTag",
+    "Relationship",
+    "SchemaDefinition",
+    "Section"
 ]

@@ -1,89 +1,138 @@
-"""Section model for document structure representation."""
+"""Section model for document content representation."""
 
 from dataclasses import dataclass, field
-from enum import Enum
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
-
-class SectionType(Enum):
-    """Enumeration of section content types."""
-
-    TITLE = "title"
-    HEADING = "heading"
-    PARAGRAPH = "paragraph"
-    CODE_BLOCK = "code_block"
-    LIST = "list"
-    LIST_ITEM = "list_item"
-    BLOCKQUOTE = "blockquote"
-    TABLE = "table"
-    IMAGE = "image"
-    LINK = "link"
-    HORIZONTAL_RULE = "horizontal_rule"
-    FRONTMATTER = "frontmatter"
-    UNKNOWN = "unknown"
+if TYPE_CHECKING:
+    from .schema import SectionType, ContentClassification, SemanticTag
 
 
 @dataclass
 class Section:
-    """Represents a section of a document with semantic tagging.
-
-    Attributes:
-        content: The raw text content of the section.
-        section_type: The type of content (heading, paragraph, etc.).
-        level: Hierarchical level for headings (1-6 for markdown headings).
-        metadata: Additional semantic metadata for the section.
-        children: Child sections (for nested content).
-        line_number: Original line number in source document.
     """
+    Represents a section of a document.
 
+    Sections are the building blocks of structured documents,
+    each containing content with semantic metadata.
+    """
+    id: str
+    type: "SectionType"
     content: str
-    section_type: SectionType = SectionType.PARAGRAPH
-    level: int = 0
-    metadata: dict[str, Any] = field(default_factory=dict)
+    level: int = 1
+    line_start: int = 0
+    line_end: int = 0
+    language: str = ""
+    semantic_tags: list["SemanticTag"] = field(default_factory=list)
+    classification: "ContentClassification | None" = None
     children: list["Section"] = field(default_factory=list)
-    line_number: int = 0
-
-    def add_child(self, child: "Section") -> None:
-        """Add a child section to this section.
-
-        Args:
-            child: The section to add as a child.
-        """
-        self.children.append(child)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        """Convert section to dictionary representation.
-
-        Returns:
-            Dictionary containing section data.
-        """
+        """Convert section to dictionary representation."""
         return {
+            "id": self.id,
+            "type": self.type.value,
             "content": self.content,
-            "type": self.section_type.value,
             "level": self.level,
-            "metadata": self.metadata,
+            "line_start": self.line_start,
+            "line_end": self.line_end,
+            "language": self.language,
+            "semantic_tags": [tag.to_dict() for tag in self.semantic_tags],
+            "classification": self.classification.value if self.classification else None,
             "children": [child.to_dict() for child in self.children],
-            "line_number": self.line_number,
+            "metadata": self.metadata
         }
 
-    @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "Section":
-        """Create section from dictionary representation.
-
-        Args:
-            data: Dictionary containing section data.
-
-        Returns:
-            Section instance.
-        """
-        section_type = SectionType(data.get("type", "paragraph"))
-        return cls(
-            content=data.get("content", ""),
-            section_type=section_type,
-            level=data.get("level", 0),
-            metadata=data.get("metadata", {}),
-            children=[
-                cls.from_dict(child) for child in data.get("children", [])
-            ],
-            line_number=data.get("line_number", 0),
+    def add_semantic_tag(self, name: str, value: str, confidence: float = 1.0) -> None:
+        """Add a semantic tag to this section."""
+        from .schema import SemanticTag
+        self.semantic_tags.append(
+            SemanticTag(name=name, value=value, confidence=confidence)
         )
+
+    def get_word_count(self) -> int:
+        """Get word count of section content."""
+        return len(self.content.split())
+
+    def get_char_count(self) -> int:
+        """Get character count of section content."""
+        return len(self.content)
+
+    def is_empty(self) -> bool:
+        """Check if section has no content."""
+        return not self.content.strip()
+
+    def get_depth(self) -> int:
+        """Get the depth of this section in the document tree."""
+        depth = 0
+        current = self
+        while current.children:
+            depth += 1
+            # Note: In this implementation, depth is based on children presence
+            break  # Simplified - actual implementation would track parent
+        return self.level
+
+
+@dataclass
+class SectionBuilder:
+    """Builder for creating Section objects with fluent interface."""
+
+    _section: Section | None = None
+
+    def create(
+        self,
+        section_id: str,
+        section_type: "SectionType",
+        content: str = ""
+    ) -> "SectionBuilder":
+        """Start building a new section."""
+        self._section = Section(
+            id=section_id,
+            type=section_type,
+            content=content
+        )
+        return self
+
+    def with_level(self, level: int) -> "SectionBuilder":
+        """Set the heading level."""
+        if self._section:
+            self._section.level = level
+        return self
+
+    def with_line_range(self, start: int, end: int) -> "SectionBuilder":
+        """Set the line range."""
+        if self._section:
+            self._section.line_start = start
+            self._section.line_end = end
+        return self
+
+    def with_language(self, language: str) -> "SectionBuilder":
+        """Set the programming language for code blocks."""
+        if self._section:
+            self._section.language = language
+        return self
+
+    def with_classification(
+        self,
+        classification: "ContentClassification"
+    ) -> "SectionBuilder":
+        """Set content classification."""
+        if self._section:
+            self._section.classification = classification
+        return self
+
+    def with_metadata(self, key: str, value: Any) -> "SectionBuilder":
+        """Add metadata to the section."""
+        if self._section:
+            self._section.metadata[key] = value
+        return self
+
+    def add_child(self, child: Section) -> "SectionBuilder":
+        """Add a child section."""
+        if self._section:
+            self._section.children.append(child)
+        return self
+
+    def build(self) -> Section | None:
+        """Build and return the section."""
+        return self._section

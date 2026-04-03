@@ -1,483 +1,268 @@
-"""
-Semantic tagger plugin for adding semantic markers to parsed content.
-"""
+"""Semantic tagger plugin for content analysis and classification."""
 
 import re
-from typing import Any, Dict, List, Optional, Set
+from typing import Optional
+
+from ..models.schema import (
+    SectionType,
+    ContentClassification,
+    SemanticTag,
+    DEFAULT_SEMANTIC_MAPPINGS
+)
 
 
 class SemanticTagger:
     """
-    Plugin for adding semantic tags to document content.
+    Analyzes document content and applies semantic tags.
 
-    This plugin analyzes document structure and content to add:
-    - Section type classification (introduction, body, conclusion, etc.)
-    - Content type markers (explanation, instruction, reference, etc.)
-    - Importance indicators (critical, important, supplementary)
-    - Relationship markers between sections
+    This plugin detects patterns, classifies content types,
+    and generates semantic metadata for AI-readable output.
     """
 
-    # Patterns for content classification
-    QUESTION_PATTERN = re.compile(r'\?$')
-    EXCLAMATION_PATTERN = re.compile(r'!$')
-    CODE_BLOCK_PATTERN = re.compile(r'^```', re.MULTILINE)
-    IMPORTANT_KEYWORDS = {
-        'important', 'critical', 'warning', 'caution', 'danger',
-        'note', 'attention', 'notice', 'essential', 'required',
-        'must', 'should', 'required', 'mandatory'
+    # Patterns for detecting specific content types
+    PATTERNS = {
+        "api_endpoint": re.compile(
+            r'\b(GET|POST|PUT|PATCH|DELETE)\s+[/@]?\w+',
+            re.IGNORECASE
+        ),
+        "function_def": re.compile(
+            r'\b(def|function|fn|func)\s+\w+\s*\(',
+            re.IGNORECASE
+        ),
+        "class_def": re.compile(
+            r'\b(class|struct|interface|type)\s+\w+',
+            re.IGNORECASE
+        ),
+        "configuration": re.compile(
+            r'\b[A-Z_]+(?:=|:)\s*["\']?.+["\']?',
+            re.IGNORECASE
+        ),
+        "url": re.compile(
+            r'https?://[^\s<>"{}|\\^`\[\]]+',
+            re.IGNORECASE
+        ),
+        "email": re.compile(
+            r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b'
+        ),
+        "version": re.compile(
+            r'\bv?\d+\.\d+(?:\.\d+)*(?:[-.]?\w+)?\b'
+        ),
+        "file_path": re.compile(
+            r'(?:[a-zA-Z]:\\|/)?(?:[^\\/:*?"<>|\r\n]+\/)*[^\\/:*?"<>|\r\n]+'
+        ),
+        "installation_command": re.compile(
+            r'(?:pip|npm|yarn|apt|brew|cargo)\s+(?:install|add|get)\s+',
+            re.IGNORECASE
+        ),
+        "code_inline": re.compile(r'`[^`]+`'),
+        "bold_text": re.compile(r'\*\*[^*]+\*\*|__[^_]+__'),
+        "link": re.compile(r'\[([^\]]+)\]\(([^)]+)\)'),
     }
-    REFERENCE_KEYWORDS = {
-        'see also', 'reference', 'related', 'further reading',
-        'documentation', 'manual', 'guide', 'tutorial'
-    }
-    INSTRUCTION_KEYWORDS = {
-        'step', 'steps', 'how to', 'how-to', 'instructions',
-        'procedure', 'process', 'install', 'configure', 'setup',
-        'run', 'execute', 'build', 'deploy'
-    }
-    CONFIGURATION_KEYWORDS = {
-        'setting', 'config', 'configuration', 'option', 'parameter',
-        'variable', 'environment', 'flag', 'feature'
-    }
-    API_KEYWORDS = {
-        'api', 'endpoint', 'request', 'response', 'method',
-        'header', 'status', 'authentication', 'authorization'
-    }
-    ERROR_KEYWORDS = {
-        'error', 'exception', 'warning', 'fail', 'failed',
-        'issue', 'problem', 'bug', 'crash', 'broken'
+
+    # Warning/note indicators
+    CALLOUT_PATTERNS = {
+        "warning": re.compile(
+            r'\b(?:warning|caution|danger|attention)\b:?',
+            re.IGNORECASE
+        ),
+        "note": re.compile(
+            r'\b(?:note|tip|info|hint)\b:?',
+            re.IGNORECASE
+        ),
+        "important": re.compile(
+            r'\b(?:important|remember|do not|avoid)\b:?',
+            re.IGNORECASE
+        ),
     }
 
-    def __init__(self, config: Optional[Dict[str, Any]] = None):
-        """
-        Initialize the semantic tagger.
-
-        Args:
-            config: Optional configuration dictionary.
-                - include_importance: Include importance markers (default: True)
-                - include_relationships: Include section relationships (default: True)
-                - min_word_count: Minimum word count for paragraphs (default: 10)
-                - custom_keywords: Custom keyword mappings (default: {})
-        """
-        self.config = config or {}
-        self.include_importance = self.config.get("include_importance", True)
-        self.include_relationships = self.config.get("include_relationships", True)
-        self.min_word_count = self.config.get("min_word_count", 10)
-        self.custom_keywords = self.config.get("custom_keywords", {})
-
-        # Merge custom keywords with defaults
-        self._keywords = self._merge_keywords()
-
-    def _merge_keywords(self) -> Dict[str, Set[str]]:
-        """Merge custom keywords with default keyword sets."""
-        return {
-            "important_keywords": self.IMPORTANT_KEYWORDS | self.custom_keywords.get("important_keywords", set()),
-            "reference_keywords": self.REFERENCE_KEYWORDS | self.custom_keywords.get("reference_keywords", set()),
-            "instruction_keywords": self.INSTRUCTION_KEYWORDS | self.custom_keywords.get("instruction_keywords", set()),
-            "configuration_keywords": self.CONFIGURATION_KEYWORDS | self.custom_keywords.get("configuration_keywords", set()),
-            "api_keywords": self.API_KEYWORDS | self.custom_keywords.get("api_keywords", set()),
-            "error_keywords": self.ERROR_KEYWORDS | self.custom_keywords.get("error_keywords", set()),
-        }
-
-    def process(self, parsed: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Process parsed document and add semantic tags.
-
-        Args:
-            parsed: The parsed document dictionary.
-
-        Returns:
-            The document with semantic tags added.
-        """
-        result = parsed.copy()
-        result["semantic_tags"] = {}
-
-        # Tag sections
-        if "sections" in result:
-            result["sections"] = self._tag_sections(result["sections"])
-
-        # Tag elements
-        if "elements" in result:
-            result["elements"] = self._tag_elements(result["elements"])
-
-        # Add importance markers
-        if self.include_importance:
-            result["semantic_tags"]["importance"] = self._calculate_importance_markers(result)
-
-        # Add relationships
-        if self.include_relationships:
-            result["semantic_tags"]["relationships"] = self._calculate_relationships(result)
-
-        return result
-
-    def _tag_sections(self, sections: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """
-        Add semantic tags to sections.
-
-        Args:
-            sections: List of section dictionaries.
-
-        Returns:
-            Sections with semantic tags added.
-        """
-        tagged_sections = []
-
-        for i, section in enumerate(sections):
-            tagged = section.copy()
-            tagged["semantic_tags"] = {}
-
-            # Classify section type based on level and content
-            tagged["semantic_tags"]["type"] = self._classify_section_type(section, i, len(sections))
-
-            # Add content type
-            tagged["semantic_tags"]["content_type"] = self._classify_content_type(section)
-
-            # Add importance
-            if self.include_importance:
-                tagged["semantic_tags"]["importance"] = self._calculate_section_importance(section)
-
-            # Add keywords found
-            tagged["semantic_tags"]["keywords"] = self._extract_keywords(section)
-
-            # Add reading order for AI
-            tagged["semantic_tags"]["reading_order"] = i + 1
-
-            tagged_sections.append(tagged)
-
-        return tagged_sections
-
-    def _tag_elements(self, elements: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """
-        Add semantic tags to elements.
-
-        Args:
-            elements: List of element dictionaries.
-
-        Returns:
-            Elements with semantic tags added.
-        """
-        tagged_elements = []
-
-        for element in elements:
-            tagged = element.copy()
-            tagged["semantic_tags"] = {}
-
-            # Tag element type
-            tagged["semantic_tags"]["content_type"] = self._classify_element_type(element)
-
-            # Add importance
-            if self.include_importance:
-                tagged["semantic_tags"]["importance"] = self._calculate_element_importance(element)
-
-            tagged_elements.append(tagged)
-
-        return tagged_elements
-
-    def _classify_section_type(
+    def classify_content(
         self,
-        section: Dict[str, Any],
-        index: int,
-        total: int
-    ) -> str:
-        """
-        Classify the type of section based on its position and content.
-
-        Args:
-            section: The section dictionary.
-            index: The section index.
-            total: Total number of sections.
-
-        Returns:
-            The section type string.
-        """
-        title = section.get("title", "").lower()
-        level = section.get("level", 1)
-
-        # Check for specific section types by title
-        for pattern, section_type in [
-            (r'^introduction|^overview|^about', 'introduction'),
-            (r'^conclusion|^summary|^final', 'conclusion'),
-            (r'^table of contents|^toc', 'toc'),
-            (r'^faq|^troubleshooting|^faq$', 'troubleshooting'),
-            (r'^license|^copyright', 'legal'),
-            (r'^appendix|^reference', 'reference'),
-        ]:
-            if re.search(pattern, title):
-                return section_type
-
-        # Classify by position and level
-        if level == 1:
-            if index == 0:
-                return "introduction"
-            elif index >= total - 1:
-                return "conclusion"
-            else:
-                return "chapter"
-        elif level == 2:
-            return "subsection"
-        else:
-            return "subsubsection"
-
-    def _classify_content_type(self, section: Dict[str, Any]) -> str:
+        content: str,
+        section_type: SectionType
+    ) -> Optional[ContentClassification]:
         """
         Classify the content type of a section.
 
         Args:
-            section: The section dictionary.
+            content: The text content to classify
+            section_type: The type of section
 
         Returns:
-            The content type string.
+            ContentClassification or None if classification not possible
         """
-        title = section.get("title", "").lower()
-        paragraphs = section.get("paragraphs", [])
-        content = " ".join([
-            section.get("title", ""),
-            " ".join(p.get("content", "") for p in paragraphs)
-        ]).lower()
+        content_lower = content.lower()
 
-        # Check for instruction content
-        if self._contains_keywords(content, self._keywords["instruction_keywords"]):
-            return "instruction"
-        if self._contains_keywords(title, self._keywords["instruction_keywords"]):
-            return "instruction"
-
-        # Check for configuration content
-        if self._contains_keywords(content, self._keywords["configuration_keywords"]):
-            return "configuration"
-        if self._contains_keywords(title, self._keywords["configuration_keywords"]):
-            return "configuration"
+        # Check for callouts first
+        if self.CALLOUT_PATTERNS["warning"].search(content):
+            return ContentClassification.WARNING
+        if self.CALLOUT_PATTERNS["note"].search(content):
+            return ContentClassification.NOTE
 
         # Check for API documentation
-        if self._contains_keywords(content, self._keywords["api_keywords"]):
-            return "api_reference"
-        if self._contains_keywords(title, self._keywords["api_keywords"]):
-            return "api_reference"
+        if section_type == SectionType.CODE_BLOCK:
+            if self.PATTERNS["api_endpoint"].search(content):
+                return ContentClassification.API_DOC
+            if self.PATTERNS["function_def"].search(content):
+                return ContentClassification.API_DOC
+            return ContentClassification.TECHNICAL
 
-        # Check for error/issue documentation
-        if self._contains_keywords(content, self._keywords["error_keywords"]):
-            return "error_reference"
+        # Check for configuration
+        if self.PATTERNS["configuration"].search(content):
+            return ContentClassification.CONFIGURATION
 
-        # Check for reference content
-        if self._contains_keywords(content, self._keywords["reference_keywords"]):
-            return "reference"
+        # Check for troubleshooting
+        if any(word in content_lower for word in ["error", "issue", "problem", "fix", "solution"]):
+            return ContentClassification.TROUBLESHOOTING
 
-        return "explanation"
+        # Check for examples
+        if any(word in content_lower for word in ["example", "example:", "e.g.", "for example"]):
+            return ContentClassification.EXAMPLE
 
-    def _classify_element_type(self, element: Dict[str, Any]) -> str:
+        # Default based on section type
+        if section_type.value.startswith("heading_"):
+            if any(word in content_lower for word in ["api", "reference", "docs"]):
+                return ContentClassification.API_DOC
+            return ContentClassification.NARRATIVE
+
+        return ContentClassification.TECHNICAL
+
+    def detect_patterns(self, content: str) -> list[SemanticTag]:
         """
-        Classify the type of an element.
+        Detect patterns in content and return semantic tags.
 
         Args:
-            element: The element dictionary.
+            content: The text content to analyze
 
         Returns:
-            The element type string.
+            List of SemanticTag objects for detected patterns
         """
-        element_type = element.get("type", "unknown")
-        content = element.get("content", "").lower()
+        tags = []
 
-        if element_type == "link":
-            return "hyperlink"
-        elif element_type == "image":
-            return "media"
-        elif element_type == "inline_code":
-            return "code_reference"
-        elif element_type == "list_item":
-            if self._contains_keywords(content, self._keywords["instruction_keywords"]):
-                return "instruction_step"
-            return "list_item"
-        elif element_type == "paragraph":
-            if len(content.split()) < self.min_word_count:
-                return "short_text"
-            return "prose"
+        # Check each pattern
+        for pattern_name, pattern in self.PATTERNS.items():
+            matches = pattern.findall(content)
+            if matches:
+                tag = SemanticTag(
+                    name="pattern",
+                    value=pattern_name,
+                    confidence=min(len(matches) * 0.2, 1.0),
+                    source="pattern_match"
+                )
+                tags.append(tag)
 
-        return element_type
+        # Detect semantic mappings
+        content_lower = content.lower()
+        for keyword, classification in DEFAULT_SEMANTIC_MAPPINGS.items():
+            if keyword in content_lower:
+                tags.append(
+                    SemanticTag(
+                        name="semantic_marker",
+                        value=classification.value,
+                        confidence=0.9,
+                        source="keyword_match"
+                    )
+                )
 
-    def _calculate_section_importance(self, section: Dict[str, Any]) -> str:
+        # Detect numbered lists (often for steps)
+        list_items = re.findall(r'^\d+\.\s+', content, re.MULTILINE)
+        if len(list_items) >= 3:
+            tags.append(
+                SemanticTag(
+                    name="list_type",
+                    value="ordered_steps",
+                    confidence=0.85,
+                    source="structural_analysis"
+                )
+            )
+
+        # Detect bullet lists
+        bullet_items = re.findall(r'^[-*+]\s+', content, re.MULTILINE)
+        if len(bullet_items) >= 3:
+            tags.append(
+                SemanticTag(
+                    name="list_type",
+                    value="unordered_items",
+                    confidence=0.85,
+                    source="structural_analysis"
+                )
+            )
+
+        return tags
+
+    def extract_entities(self, content: str) -> dict[str, list[str]]:
         """
-        Calculate the importance level of a section.
+        Extract named entities from content.
 
         Args:
-            section: The section dictionary.
+            content: The text content to analyze
 
         Returns:
-            The importance level string.
+            Dictionary of entity types to lists of extracted values
         """
-        title = section.get("title", "").lower()
-        content = " ".join([
-            section.get("title", ""),
-            " ".join(p.get("content", "") for p in section.get("paragraphs", []))
-        ]).lower()
-
-        # Check for critical keywords
-        if any(kw in content for kw in self._keywords["important_keywords"]):
-            return "critical"
-        if any(kw in title for kw in self._keywords["important_keywords"]):
-            return "important"
-
-        # Code sections are typically important
-        if "code" in title or "example" in title:
-            return "important"
-
-        # Configuration sections are important
-        if self._contains_keywords(content, self._keywords["configuration_keywords"]):
-            return "important"
-
-        return "normal"
-
-    def _calculate_element_importance(self, element: Dict[str, Any]) -> str:
-        """
-        Calculate the importance level of an element.
-
-        Args:
-            element: The element dictionary.
-
-        Returns:
-            The importance level string.
-        """
-        content = element.get("content", "").lower()
-        element_type = element.get("type", "")
-
-        # Code elements are important
-        if element_type in ("code_reference", "inline_code"):
-            return "important"
-
-        # Links to external resources
-        if element_type == "link":
-            url = element.get("url", "").lower()
-            if any(domain in url for domain in ["api.", "docs.", "reference."]):
-                return "important"
-            return "supplementary"
-
-        # Short text is less important
-        if len(content.split()) < self.min_word_count:
-            return "supplementary"
-
-        return "normal"
-
-    def _extract_keywords(self, section: Dict[str, Any]) -> List[str]:
-        """
-        Extract relevant keywords from a section.
-
-        Args:
-            section: The section dictionary.
-
-        Returns:
-            List of extracted keywords.
-        """
-        title = section.get("title", "").lower()
-        content = " ".join([
-            section.get("title", ""),
-            " ".join(p.get("content", "") for p in section.get("paragraphs", []))
-        ]).lower()
-
-        keywords: List[str] = []
-
-        # Categorize by keyword types
-        if self._contains_keywords(content, self._keywords["important_keywords"]):
-            keywords.append("important")
-        if self._contains_keywords(content, self._keywords["reference_keywords"]):
-            keywords.append("reference")
-        if self._contains_keywords(content, self._keywords["instruction_keywords"]):
-            keywords.append("instruction")
-        if self._contains_keywords(content, self._keywords["configuration_keywords"]):
-            keywords.append("configuration")
-        if self._contains_keywords(content, self._keywords["api_keywords"]):
-            keywords.append("api")
-        if self._contains_keywords(content, self._keywords["error_keywords"]):
-            keywords.append("error")
-
-        return list(set(keywords))
-
-    def _calculate_importance_markers(self, parsed: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Calculate overall importance markers for the document.
-
-        Args:
-            parsed: The parsed document dictionary.
-
-        Returns:
-            Dictionary of importance markers.
-        """
-        markers: Dict[str, Any] = {
-            "has_critical": False,
-            "has_important": False,
-            "has_instructions": False,
-            "has_configuration": False,
-            "has_api_reference": False,
-            "has_errors": False,
+        entities: dict[str, list[str]] = {
+            "urls": [],
+            "emails": [],
+            "file_paths": [],
+            "versions": [],
+            "commands": []
         }
 
-        # Check sections
-        for section in parsed.get("sections", []):
-            tags = section.get("semantic_tags", {})
-            importance = tags.get("importance", "normal")
-            content_type = tags.get("content_type", "")
+        # Extract URLs
+        entities["urls"] = self.PATTERNS["url"].findall(content)
 
-            if importance == "critical":
-                markers["has_critical"] = True
-            if importance == "important":
-                markers["has_important"] = True
-            if content_type == "instruction":
-                markers["has_instructions"] = True
-            if content_type == "configuration":
-                markers["has_configuration"] = True
-            if content_type == "api_reference":
-                markers["has_api_reference"] = True
-            if content_type == "error_reference":
-                markers["has_errors"] = True
+        # Extract emails
+        entities["emails"] = self.PATTERNS["email"].findall(content)
 
-        return markers
+        # Extract file paths
+        entities["file_paths"] = self.PATTERNS["file_path"].findall(content)
 
-    def _calculate_relationships(self, parsed: Dict[str, Any]) -> List[Dict[str, Any]]:
+        # Extract versions
+        entities["versions"] = self.PATTERNS["version"].findall(content)
+
+        # Extract commands
+        if self.PATTERNS["installation_command"].search(content):
+            # Find the command
+            match = re.search(
+                r'(?:pip|npm|yarn|apt|brew|cargo)\s+\w+\s+[^\n]+',
+                content
+            )
+            if match:
+                entities["commands"].append(match.group(0))
+
+        return entities
+
+    def analyze_reading_level(self, content: str) -> dict[str, any]:
         """
-        Calculate relationships between sections.
+        Analyze the reading level of content.
 
         Args:
-            parsed: The parsed document dictionary.
+            content: The text content to analyze
 
         Returns:
-            List of relationship dictionaries.
+            Dictionary with reading level metrics
         """
-        relationships: List[Dict[str, Any]] = []
-        sections = parsed.get("sections", [])
+        words = content.split()
+        sentences = re.split(r'[.!?]+', content)
+        sentences = [s.strip() for s in sentences if s.strip()]
 
-        for i, section in enumerate(sections):
-            section_title = section.get("title", "")
-            tags = section.get("semantic_tags", {})
-            content_type = tags.get("content_type", "")
+        if not words or not sentences:
+            return {
+                "average_word_length": 0,
+                "average_sentence_length": 0,
+                "word_count": 0,
+                "sentence_count": 0
+            }
 
-            # Find related sections based on content type
-            if content_type == "reference":
-                # Reference sections relate to introduction and body
-                relationships.append({
-                    "source": section_title,
-                    "target": "introduction",
-                    "type": "references",
-                })
+        # Calculate average word length
+        total_word_length = sum(len(w) for w in words)
+        avg_word_length = total_word_length / len(words)
 
-            # Parent-child relationships
-            if i > 0:
-                prev_section = sections[i - 1]
-                if section.get("level", 1) > prev_section.get("level", 1):
-                    relationships.append({
-                        "source": prev_section.get("title", ""),
-                        "target": section_title,
-                        "type": "contains",
-                    })
+        # Calculate average sentence length
+        avg_sentence_length = len(words) / len(sentences)
 
-        return relationships
-
-    def _contains_keywords(self, text: str, keywords: Set[str]) -> bool:
-        """
-        Check if text contains any of the keywords.
-
-        Args:
-            text: The text to check.
-            keywords: Set of keywords to look for.
-
-        Returns:
-            True if any keyword is found, False otherwise.
-        """
-        words = set(re.findall(r'\b\w+\b', text.lower()))
-        return bool(words & keywords)
+        return {
+            "average_word_length": round(avg_word_length, 2),
+            "average_sentence_length": round(avg_sentence_length, 2),
+            "word_count": len(words),
+            "sentence_count": len(sentences)
+        }
