@@ -10,31 +10,18 @@ readme = "README.md"
 license = "MIT"
 requires-python = ">=3.11"
 authors = [
-    { name = "Developer", email = "dev@example.com" }
-]
-keywords = [
-    "documentation",
-    "ai",
-    "llm",
-    "mcp",
-    "markdown",
-    "rag",
-    "knowledge-base"
+    { name = "Developer" }
 ]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
     "License :: OSI Approved :: MIT License",
-    "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
-    "Topic :: Software Development :: Libraries :: Python Modules",
 ]
 dependencies = [
-    "markdown-it-py>=3.0.0",
+    "mistune>=3.0.0",
     "pydantic>=2.0.0",
-    "click>=8.0.0",
-    "rich>=13.0.0",
 ]
 
 [project.optional-dependencies]
@@ -56,15 +43,16 @@ line-length = 100
 target-version = "py311"
 
 [tool.ruff.lint]
-select = ["E", "F", "W", "I", "N", "UP", "B", "C4"]
+select = ["E", "F", "I", "W", "N", "D", "UP", "YTT", "ANN", "S", "BLE", "FBT", "B", "A", "COM", "C4", "DTZ", "T10", "DJ", "EM", "EXE", "ISC", "ICN", "G", "INP", "PIE", "T20", "PYI", "PT", "Q", "RSE", "RET", "SLF", "SIM", "TID", "TCH", "ARG", "PTH", "ERA", "PD", "PGH", "PL", "TRY", "RUF"]
+ignore = ["D100", "D101", "D102", "D103", "D104", "D105", "D107", "D203", "D213"]
 
 [tool.mypy]
 python_version = "3.11"
 strict = true
 warn_return_any = true
-warn_unused_ignores = true
+warn_unused_configs = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
-addopts = "-v"
+python_functions = ["test_*"]

@@ -1,21 +1,14 @@
-"""Schema models for AI-readable document output."""
+"""Models for structured document representation."""
 
-from ai_readable_doc_generator.models.schema import (
-    ContentType,
-    DocumentMetadata,
-    HeadingLevel,
-    SemanticSection,
-    SemanticDocument,
-    SemanticBlock,
-    RelationshipType,
-)
+from ai_readable_doc_generator.models.document import Document, DocumentMetadata
+from ai_readable_doc_generator.models.schema import OutputSchema, SchemaType
+from ai_readable_doc_generator.models.section import Section, SectionType
 
 __all__ = [
-    "SemanticDocument",
-    "SemanticSection",
-    "SemanticBlock",
+    "Document",
     "DocumentMetadata",
-    "ContentType",
-    "HeadingLevel",
-    "RelationshipType",
+    "OutputSchema",
+    "SchemaType",
+    "Section",
+    "SectionType",
 ]
