@@ -1,58 +1,63 @@
 [build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
 
 [project]
 name = "ai-readable-doc-generator"
 version = "0.1.0"
-description = "Transform documentation into AI-Agent-friendly formats with structured output and semantic tagging"
+description = "Transform documentation into AI-agent-friendly formats with semantic tagging and MCP compatibility"
 readme = "README.md"
-license = "MIT"
+license = {text = "MIT"}
 requires-python = ">=3.11"
 authors = [
-    { name = "Developer" }
+    {name = "AI Doc Generator Team"}
 ]
+keywords = ["documentation", "ai", "llm", "mcp", "semantic", "markdown", "html"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
     "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Topic :: Text Processing :: Markup :: HTML",
+    "Topic :: Text Processing :: Markup :: Markdown",
 ]
+
 dependencies = [
-    "mistune>=3.0.0",
-    "pydantic>=2.0.0",
+    "beautifulsoup4>=4.12.0",
+    "lxml>=5.0.0",
 ]
 
 [project.optional-dependencies]
 dev = [
-    "pytest>=7.0.0",
-    "pytest-cov>=4.0.0",
-    "ruff>=0.1.0",
-    "mypy>=1.0.0",
+    "pytest>=8.0.0",
+    "pytest-cov>=4.1.0",
+    "ruff>=0.4.0",
+    "mypy>=1.9.0",
 ]
 
 [project.scripts]
 ai-doc-gen = "ai_readable_doc_generator.cli:main"
 
-[tool.hatch.build.targets.wheel]
-packages = ["src/ai_readable_doc_generator"]
+[tool.setuptools.packages.find]
+where = ["src"]
 
 [tool.ruff]
 line-length = 100
 target-version = "py311"
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "W", "N", "D", "UP", "YTT", "ANN", "S", "BLE", "FBT", "B", "A", "COM", "C4", "DTZ", "T10", "DJ", "EM", "EXE", "ISC", "ICN", "G", "INP", "PIE", "T20", "PYI", "PT", "Q", "RSE", "RET", "SLF", "SIM", "TID", "TCH", "ARG", "PTH", "ERA", "PD", "PGH", "PL", "TRY", "RUF"]
-ignore = ["D100", "D101", "D102", "D103", "D104", "D105", "D107", "D203", "D213"]
+select = ["E", "F", "W", "I", "N", "UP", "B", "C4"]
 
 [tool.mypy]
 python_version = "3.11"
-strict = true
 warn_return_any = true
-warn_unused_configs = true
+warn_unused_ignores = true
+disallow_untyped_defs = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_functions = ["test_*"]
+addopts = "-v"

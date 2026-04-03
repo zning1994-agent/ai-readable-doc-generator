@@ -1,63 +1,112 @@
-"""Section model representing semantic sections within documents."""
+"""Section model for document structure."""
 
+from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
 
-from pydantic import BaseModel, Field
 
+class SectionType(Enum):
+    """Types of sections in a document."""
 
-class SectionType(str, Enum):
-    """Types of semantic sections in a document."""
-
-    HEADING_1 = "heading_1"
-    HEADING_2 = "heading_2"
-    HEADING_3 = "heading_3"
-    HEADING_4 = "heading_4"
-    HEADING_5 = "heading_5"
-    HEADING_6 = "heading_6"
+    DOCUMENT = "document"
+    HEADING = "heading"
     PARAGRAPH = "paragraph"
-    CODE_BLOCK = "code_block"
-    INLINE_CODE = "inline_code"
-    BLOCKQUOTE = "blockquote"
+    LIST = "list"
     LIST_ITEM = "list_item"
-    ORDERED_LIST = "ordered_list"
-    UNORDERED_LIST = "unordered_list"
+    CODE = "code"
     TABLE = "table"
-    HORIZONTAL_RULE = "horizontal_rule"
-    LINK = "link"
+    TABLE_ROW = "table_row"
+    TABLE_CELL = "table_cell"
+    BLOCKQUOTE = "blockquote"
     IMAGE = "image"
-    HTML_BLOCK = "html_block"
-    MATH_BLOCK = "math_block"
-    MATH_INLINE = "math_inline"
-    FOOTNOTE_REFERENCE = "footnote_reference"
-    DEFINITION_LIST = "definition_list"
-    STRIKETHROUGH = "strikethrough"
-    TASK_LIST = "task_list"
-    FRONT_MATTER = "front_matter"
-    COMMENT = "comment"
-    CUSTOM = "custom"
+    LINK = "link"
+    DIVISION = "division"
+    SPAN = "span"
+    NAVIGATION = "navigation"
+    HEADER = "header"
+    FOOTER = "footer"
+    ASIDE = "aside"
+    ARTICLE = "article"
+    MAIN = "main"
+    SECTION = "section"
+    UNKNOWN = "unknown"
 
 
-class Section(BaseModel):
-    """Represents a semantic section within a document."""
+class ContentClassification(Enum):
+    """Classification of content within a section."""
 
-    section_type: SectionType = Field(default=SectionType.PARAGRAPH)
-    content: str = ""
-    raw_content: str | None = None
-    heading_level: int | None = None
-    children: list["Section"] = Field(default_factory=list)
-    metadata: dict[str, Any] = Field(default_factory=dict)
-    language: str | None = None
-    url: str | None = None
-    alt_text: str | None = None
-    checked: bool | None = None
-    list_start: int | None = None
-    importance: str = "normal"
+    NARRATIVE = "narrative"
+    TECHNICAL = "technical"
+    REFERENCE = "reference"
+    TUTORIAL = "tutorial"
+    EXAMPLE = "example"
+    WARNING = "warning"
+    NOTE = "note"
+    CODE_LITERAL = "code_literal"
+    METADATA = "metadata"
+    NAVIGATION = "navigation"
+    UNKNOWN = "unknown"
 
-    def model_post_init(self, __context: Any) -> None:
-        """Post-initialization processing."""
-        if self.heading_level is None and self.section_type.name.startswith("HEADING_"):
-            try:
-                self.heading_level = int(self.section_type.name.split("_")[1])
-            except (IndexError, ValueError):
-                pass
+
+class ImportanceLevel(Enum):
+    """Importance level of content."""
+
+    CRITICAL = "critical"
+    HIGH = "high"
+    MEDIUM = "medium"
+    LOW = "low"
+    INFO = "info"
+
+
+@dataclass
+class Section:
+    """Represents a section of a document with semantic metadata."""
+
+    section_type: SectionType
+    content: str
+    level: int = 1
+    children: list["Section"] = field(default_factory=list)
+    metadata: dict[str, Any] = field(default_factory=dict)
+    classification: ContentClassification = ContentClassification.UNKNOWN
+    importance: ImportanceLevel = ImportanceLevel.MEDIUM
+    id: str | None = None
+    classes: list[str] = field(default_factory=list)
+    raw_attributes: dict[str, str] = field(default_factory=dict)
+
+    def add_child(self, child: "Section") -> None:
+        """Add a child section."""
+        self.children.append(child)
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert section to dictionary representation."""
+        return {
+            "section_type": self.section_type.value,
+            "content": self.content,
+            "level": self.level,
+            "children": [child.to_dict() for child in self.children],
+            "metadata": self.metadata,
+            "classification": self.classification.value,
+            "importance": self.importance.value,
+            "id": self.id,
+            "classes": self.classes,
+            "raw_attributes": self.raw_attributes,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "Section":
+        """Create section from dictionary."""
+        children = [cls.from_dict(child) for child in data.get("children", [])]
+        return cls(
+            section_type=SectionType(data.get("section_type", "unknown")),
+            content=data.get("content", ""),
+            level=data.get("level", 1),
+            children=children,
+            metadata=data.get("metadata", {}),
+            classification=ContentClassification(
+                data.get("classification", "unknown")
+            ),
+            importance=ImportanceLevel(data.get("importance", "medium")),
+            id=data.get("id"),
+            classes=data.get("classes", []),
+            raw_attributes=data.get("raw_attributes", {}),
+        )

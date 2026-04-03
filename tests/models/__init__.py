@@ -1,1 +1,1 @@
-"""Test suite for models module."""
+"""Tests for models package."""

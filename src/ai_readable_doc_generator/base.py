@@ -1,44 +1,55 @@
-"""Base parser interface for document conversion."""
+"""Base converter class for document conversion."""
 
 from abc import ABC, abstractmethod
 
-from ai_readable_doc_generator.models.document import Document
+from .models import Document
 
 
-class BaseParser(ABC):
-    """Abstract base class for document parsers."""
-
-    @abstractmethod
-    def parse(self, content: str) -> Document:
-        """Parse content into a structured Document.
-
-        Args:
-            content: Raw document content to parse.
-
-        Returns:
-            A structured Document object with semantic sections.
-        """
-        ...
+class BaseConverter(ABC):
+    """Abstract base class for document converters."""
 
     @abstractmethod
-    def parse_file(self, file_path: str) -> Document:
-        """Parse a file into a structured Document.
+    def convert(self, source: str) -> Document:
+        """Convert source content to Document.
 
         Args:
-            file_path: Path to the file to parse.
+            source: The source content to convert (file path or raw content).
 
         Returns:
-            A structured Document object with semantic sections.
+            Document: The converted document with semantic structure.
         """
-        ...
+        pass
 
-    def validate(self, content: str) -> bool:
-        """Validate if the content can be parsed.
+    @abstractmethod
+    def validate(self, source: str) -> bool:
+        """Validate if the source can be converted.
 
         Args:
-            content: Raw document content to validate.
+            source: The source content to validate.
 
         Returns:
-            True if the content is valid for this parser.
+            bool: True if valid, False otherwise.
         """
-        return True
+        pass
+
+    def preprocess(self, source: str) -> str:
+        """Preprocess source content before conversion.
+
+        Args:
+            source: The raw source content.
+
+        Returns:
+            str: Preprocessed content.
+        """
+        return source
+
+    def postprocess(self, document: Document) -> Document:
+        """Postprocess converted document.
+
+        Args:
+            document: The converted document.
+
+        Returns:
+            Document: Postprocessed document.
+        """
+        return document

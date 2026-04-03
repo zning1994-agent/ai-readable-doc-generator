@@ -1,446 +1,655 @@
-"""Tests for MarkdownConverter."""
+"""Tests for HtmlConverter using BeautifulSoup4 with lxml parser."""
 
 import pytest
 
-from ai_readable_doc_generator.converter import MarkdownConverter
-from ai_readable_doc_generator.models.schema import ContentType, HeadingLevel
+from ai_readable_doc_generator.converter import HtmlConverter
+from ai_readable_doc_generator.models import (
+    ContentClassification,
+    Document,
+    ImportanceLevel,
+    Section,
+    SectionType,
+)
 
 
-class TestMarkdownConverter:
-    """Test suite for MarkdownConverter."""
+class TestHtmlConverterBasic:
+    """Basic HTML conversion tests."""
 
-    @pytest.fixture
-    def converter(self) -> MarkdownConverter:
-        """Create a converter instance for testing."""
-        return MarkdownConverter(
-            add_table_of_contents=True,
-            add_statistics=True,
-            extract_semantic_tags=True,
-            importance_detection=True,
-        )
+    def test_convert_simple_html(self) -> None:
+        """Test conversion of simple HTML document."""
+        html = "<html><body><p>Hello World</p></body></html>"
+        converter = HtmlConverter()
+        document = converter.convert(html)
 
-    @pytest.fixture
-    def sample_markdown(self) -> str:
-        """Sample Markdown content for testing."""
-        return """# Main Title
+        assert isinstance(document, Document)
+        assert "Hello World" in document.content
 
-This is an introduction paragraph.
+    def test_convert_html_with_title(self) -> None:
+        """Test extraction of title from HTML."""
+        html = """
+        <html>
+            <head><title>Test Page Title</title></head>
+            <body><p>Content</p></body>
+        </html>
+        """
+        converter = HtmlConverter()
+        document = converter.convert(html)
 
-## Section One
+        assert document.metadata.title == "Test Page Title"
+        assert document.metadata.source_type == "html"
 
-Here is some content with a [link](https://example.com).
+    def test_convert_html_with_meta_description(self) -> None:
+        """Test extraction of meta description."""
+        html = """
+        <html>
+            <head>
+                <meta name="description" content="Page description">
+            </head>
+            <body><p>Content</p></body>
+        </html>
+        """
+        converter = HtmlConverter()
+        document = converter.convert(html)
 
-### Subsection 1.1
+        assert document.metadata.description == "Page description"
 
-- List item one
-- List item two
-- List item three
+    def test_convert_html_with_language(self) -> None:
+        """Test extraction of language attribute."""
+        html = '<html lang="en-US"><body><p>Content</p></body></html>'
+        converter = HtmlConverter()
+        document = converter.convert(html)
 
-## Section Two
+        assert document.metadata.language == "en-US"
 
-```python
-def hello():
-    print("Hello, World!")
-```
+    def test_validate_valid_html(self) -> None:
+        """Test validation of valid HTML."""
+        html = "<html><body><p>Valid</p></body></html>"
+        converter = HtmlConverter()
 
-> This is a blockquote.
+        assert converter.validate(html) is True
 
----
+    def test_validate_invalid_html(self) -> None:
+        """Test validation of invalid HTML."""
+        html = "Not HTML at all"
+        converter = HtmlConverter()
 
-## Section Three
+        assert converter.validate(html) is False
 
-| Column A | Column B |
-|----------|----------|
-| Cell 1   | Cell 2   |
+    def test_convert_empty_html(self) -> None:
+        """Test conversion of empty HTML."""
+        html = "<html><body></body></html>"
+        converter = HtmlConverter()
+        document = converter.convert(html)
 
-### Final Thoughts
+        assert isinstance(document, Document)
 
-Some **bold** and *italic* text.
-"""
 
-    def test_converter_initialization(self, converter: MarkdownConverter) -> None:
-        """Test converter initializes with correct defaults."""
-        assert converter.add_table_of_contents is True
-        assert converter.add_statistics is True
-        assert converter.extract_semantic_tags is True
-        assert converter.importance_detection is True
-        assert converter.enable_relationships is True
+class TestHtmlConverterSemanticTags:
+    """Tests for semantic HTML5 tag handling."""
 
-    def test_parse_simple_heading(self, converter: MarkdownConverter) -> None:
-        """Test parsing a simple heading."""
-        content = "# Hello World"
-        result = converter.parse(content)
+    def test_convert_article_tag(self) -> None:
+        """Test conversion of article element."""
+        html = "<html><body><article><p>Article content</p></article></body></html>"
+        converter = HtmlConverter()
+        document = converter.convert(html)
 
-        assert len(result.sections) == 1
-        assert result.sections[0].title == "Hello World"
-        assert result.sections[0].level == HeadingLevel.H1
+        assert len(document.sections) > 0
+        article_sections = self._find_sections_by_type(document.sections, SectionType.ARTICLE)
+        assert len(article_sections) > 0
 
-    def test_parse_multiple_headings(self, converter: MarkdownConverter) -> None:
-        """Test parsing multiple headings at different levels."""
-        content = """# Title
-## Section 1
-### Subsection 1.1
-## Section 2
-### Subsection 2.1
-#### Deep Subsection
-"""
-        result = converter.parse(content)
+    def test_convert_nav_tag(self) -> None:
+        """Test conversion of nav element."""
+        html = "<html><body><nav><a href='/'>Home</a></nav></body></html>"
+        converter = HtmlConverter()
+        document = converter.convert(html)
 
-        assert len(result.sections) == 2
-        assert result.sections[0].title == "Title"
-        assert result.sections[0].level == HeadingLevel.H1
+        nav_sections = self._find_sections_by_type(document.sections, SectionType.NAVIGATION)
+        assert len(nav_sections) > 0
+        assert nav_sections[0].classification == ContentClassification.NAVIGATION
 
-        assert len(result.sections[0].child_sections) == 1
-        assert result.sections[0].child_sections[0].title == "Section 1"
+    def test_convert_section_tag(self) -> None:
+        """Test conversion of section element."""
+        html = "<html><body><section><h2>Section Title</h2></section></body></html>"
+        converter = HtmlConverter()
+        document = converter.convert(html)
 
-        assert len(result.sections[1].child_sections) == 1
-        assert len(result.sections[1].child_sections[0].child_sections) == 1
+        section_sections = self._find_sections_by_type(document.sections, SectionType.SECTION)
+        assert len(section_sections) > 0
 
-    def test_parse_code_block(self, converter: MarkdownConverter) -> None:
-        """Test parsing a code block."""
-        content = """# Code Example
+    def test_convert_aside_tag(self) -> None:
+        """Test conversion of aside element."""
+        html = "<html><body><aside><p>Sidebar content</p></aside></body></html>"
+        converter = HtmlConverter()
+        document = converter.convert(html)
 
-```python
+        aside_sections = self._find_sections_by_type(document.sections, SectionType.ASIDE)
+        assert len(aside_sections) > 0
+
+    def test_convert_header_footer_tags(self) -> None:
+        """Test conversion of header and footer elements."""
+        html = """
+        <html>
+            <body>
+                <header><h1>Site Title</h1></header>
+                <footer>Copyright 2024</footer>
+            </body>
+        </html>
+        """
+        converter = HtmlConverter()
+        document = converter.convert(html)
+
+        header_sections = self._find_sections_by_type(document.sections, SectionType.HEADER)
+        footer_sections = self._find_sections_by_type(document.sections, SectionType.FOOTER)
+        assert len(header_sections) > 0
+        assert len(footer_sections) > 0
+
+    def test_convert_main_tag(self) -> None:
+        """Test conversion of main element."""
+        html = "<html><body><main><p>Main content</p></main></body></html>"
+        converter = HtmlConverter()
+        document = converter.convert(html)
+
+        main_sections = self._find_sections_by_type(document.sections, SectionType.MAIN)
+        assert len(main_sections) > 0
+
+
+class TestHtmlConverterHeadings:
+    """Tests for heading hierarchy extraction."""
+
+    def test_convert_heading_levels(self) -> None:
+        """Test extraction of heading levels."""
+        html = """
+        <html>
+            <body>
+                <h1>Level 1</h1>
+                <h2>Level 2</h2>
+                <h3>Level 3</h3>
+                <h4>Level 4</h4>
+                <h5>Level 5</h5>
+                <h6>Level 6</h6>
+            </body>
+        </html>
+        """
+        converter = HtmlConverter()
+        document = converter.convert(html)
+
+        heading_sections = self._find_sections_by_type(document.sections, SectionType.HEADING)
+        assert len(heading_sections) == 6
+
+        levels = {s.level for s in heading_sections}
+        assert levels == {1, 2, 3, 4, 5, 6}
+
+    def test_convert_heading_importance(self) -> None:
+        """Test heading importance levels."""
+        html = """
+        <html>
+            <body>
+                <h1>Primary</h1>
+                <h2>Secondary</h2>
+            </body>
+        </html>
+        """
+        converter = HtmlConverter()
+        document = converter.convert(html)
+
+        h1_sections = [s for s in document.sections if s.level == 1 and s.section_type == SectionType.HEADING]
+        h2_sections = [s for s in document.sections if s.level == 2 and s.section_type == SectionType.HEADING]
+
+        if h1_sections:
+            assert h1_sections[0].importance == ImportanceLevel.HIGH
+        if h2_sections:
+            assert h2_sections[0].importance == ImportanceLevel.HIGH
+
+
+class TestHtmlConverterLists:
+    """Tests for list structure extraction."""
+
+    def test_convert_ordered_list(self) -> None:
+        """Test conversion of ordered list."""
+        html = "<html><body><ol><li>Item 1</li><li>Item 2</li></ol></body></html>"
+        converter = HtmlConverter()
+        document = converter.convert(html)
+
+        list_sections = self._find_sections_by_type(document.sections, SectionType.LIST)
+        assert len(list_sections) > 0
+
+    def test_convert_unordered_list(self) -> None:
+        """Test conversion of unordered list."""
+        html = "<html><body><ul><li>Item 1</li><li>Item 2</li></ul></body></html>"
+        converter = HtmlConverter()
+        document = converter.convert(html)
+
+        list_sections = self._find_sections_by_type(document.sections, SectionType.LIST)
+        assert len(list_sections) > 0
+
+    def test_convert_nested_list(self) -> None:
+        """Test conversion of nested list structure."""
+        html = """
+        <html>
+            <body>
+                <ul>
+                    <li>Parent 1
+                        <ul>
+                            <li>Child 1.1</li>
+                            <li>Child 1.2</li>
+                        </ul>
+                    </li>
+                    <li>Parent 2</li>
+                </ul>
+            </body>
+        </html>
+        """
+        converter = HtmlConverter()
+        document = converter.convert(html)
+
+        list_sections = self._find_sections_by_type(document.sections, SectionType.LIST)
+        assert len(list_sections) > 0
+
+        # Check for nested list items
+        item_sections = self._find_sections_by_type(document.sections, SectionType.LIST_ITEM)
+        assert len(item_sections) >= 4
+
+
+class TestHtmlConverterCodeBlocks:
+    """Tests for code block extraction."""
+
+    def test_convert_pre_code_block(self) -> None:
+        """Test conversion of pre/code block."""
+        html = "<html><body><pre><code>def hello(): pass</code></pre></body></html>"
+        converter = HtmlConverter()
+        document = converter.convert(html)
+
+        code_sections = self._find_sections_by_type(document.sections, SectionType.CODE)
+        assert len(code_sections) > 0
+        assert code_sections[0].classification == ContentClassification.CODE_LITERAL
+
+    def test_convert_inline_code(self) -> None:
+        """Test conversion of inline code."""
+        html = "<html><body><p>Use <code>pip</code> to install.</p></body></html>"
+        converter = HtmlConverter()
+        document = converter.convert(html)
+
+        code_sections = self._find_sections_by_type(document.sections, SectionType.CODE)
+        assert len(code_sections) > 0
+
+
+class TestHtmlConverterTables:
+    """Tests for table structure extraction."""
+
+    def test_convert_simple_table(self) -> None:
+        """Test conversion of simple table."""
+        html = """
+        <html>
+            <body>
+                <table>
+                    <tr><th>Header</th></tr>
+                    <tr><td>Data</td></tr>
+                </table>
+            </body>
+        </html>
+        """
+        converter = HtmlConverter()
+        document = converter.convert(html)
+
+        table_sections = self._find_sections_by_type(document.sections, SectionType.TABLE)
+        assert len(table_sections) > 0
+
+    def test_convert_table_structure(self) -> None:
+        """Test table row and cell extraction."""
+        html = """
+        <html>
+            <body>
+                <table>
+                    <tr>
+                        <th>Column 1</th>
+                        <th>Column 2</th>
+                    </tr>
+                    <tr>
+                        <td>Data 1</td>
+                        <td>Data 2</td>
+                    </tr>
+                </table>
+            </body>
+        </html>
+        """
+        converter = HtmlConverter()
+        document = converter.convert(html)
+
+        row_sections = self._find_sections_by_type(document.sections, SectionType.TABLE_ROW)
+        assert len(row_sections) >= 2
+
+
+class TestHtmlConverterLinksAndImages:
+    """Tests for link and image extraction."""
+
+    def test_convert_link(self) -> None:
+        """Test conversion of hyperlink."""
+        html = '<html><body><a href="https://example.com">Example</a></body></html>'
+        converter = HtmlConverter()
+        document = converter.convert(html)
+
+        link_sections = self._find_sections_by_type(document.sections, SectionType.LINK)
+        assert len(link_sections) > 0
+        assert "https://example.com" in link_sections[0].metadata.get("html_id", "") or \
+               "href" in str(link_sections[0].raw_attributes)
+
+    def test_convert_image(self) -> None:
+        """Test conversion of image."""
+        html = '<html><body><img src="image.png" alt="Test image"></body></html>'
+        converter = HtmlConverter()
+        document = converter.convert(html)
+
+        image_sections = self._find_sections_by_type(document.sections, SectionType.IMAGE)
+        assert len(image_sections) > 0
+        assert image_sections[0].metadata.get("alt") == "Test image"
+
+
+class TestHtmlConverterSemanticClasses:
+    """Tests for semantic class-based classification."""
+
+    def test_classify_warning_class(self) -> None:
+        """Test classification based on warning class."""
+        html = '<html><body><div class="warning">Warning message</div></body></html>'
+        converter = HtmlConverter()
+        document = converter.convert(html)
+
+        warning_sections = [s for s in document.sections
+                           if s.classification == ContentClassification.WARNING]
+        assert len(warning_sections) > 0
+
+    def test_classify_note_class(self) -> None:
+        """Test classification based on note class."""
+        html = '<html><body><div class="note">Note content</div></body></html>'
+        converter = HtmlConverter()
+        document = converter.convert(html)
+
+        note_sections = [s for s in document.sections
+                        if s.classification == ContentClassification.NOTE]
+        assert len(note_sections) > 0
+
+    def test_classify_code_class(self) -> None:
+        """Test classification based on code class."""
+        html = '<html><body><div class="code-snippet">x = 1</div></body></html>'
+        converter = HtmlConverter()
+        document = converter.convert(html)
+
+        code_sections = [s for s in document.sections
+                        if s.classification == ContentClassification.CODE_LITERAL]
+        assert len(code_sections) > 0
+
+    def test_importance_from_id(self) -> None:
+        """Test importance determination from element ID."""
+        html = '<html><body><p id="critical-info">Critical content</p></body></html>'
+        converter = HtmlConverter()
+        document = converter.convert(html)
+
+        critical_sections = [s for s in document.sections
+                            if s.importance == ImportanceLevel.CRITICAL]
+        assert len(critical_sections) > 0
+
+
+class TestHtmlConverterIdAndClasses:
+    """Tests for ID and class attribute extraction."""
+
+    def test_extract_element_id(self) -> None:
+        """Test extraction of element ID."""
+        html = '<html><body><section id="main-content"><p>Content</p></section></body></html>'
+        converter = HtmlConverter()
+        document = converter.convert(html)
+
+        sections_with_id = [s for s in document.sections if s.id == "main-content"]
+        assert len(sections_with_id) > 0
+
+    def test_extract_element_classes(self) -> None:
+        """Test extraction of CSS classes."""
+        html = '<html><body><div class="container fluid highlight">Content</div></body></html>'
+        converter = HtmlConverter()
+        document = converter.convert(html)
+
+        sections_with_classes = [s for s in document.sections if s.classes]
+        assert len(sections_with_classes) > 0
+        assert "container" in sections_with_classes[0].classes
+
+    def test_extract_raw_attributes(self) -> None:
+        """Test extraction of raw HTML attributes."""
+        html = '<html><body><a href="test.html" target="_blank" data-id="123">Link</a></body></html>'
+        converter = HtmlConverter()
+        document = converter.convert(html)
+
+        link_sections = self._find_sections_by_type(document.sections, SectionType.LINK)
+        assert len(link_sections) > 0
+        assert "href" in link_sections[0].raw_attributes
+        assert link_sections[0].raw_attributes.get("data-id") == "123"
+
+
+class TestHtmlConverterHiddenElements:
+    """Tests for hidden element handling."""
+
+    def test_ignore_display_none(self) -> None:
+        """Test ignoring elements with display:none."""
+        html = """
+        <html>
+            <body>
+                <p>Visible content</p>
+                <p style="display:none">Hidden content</p>
+            </body>
+        </html>
+        """
+        converter = HtmlConverter(ignore_hidden=True)
+        document = converter.convert(html)
+
+        assert "Visible content" in document.content
+        assert "Hidden content" not in document.content
+
+    def test_ignore_hidden_class(self) -> None:
+        """Test ignoring elements with hidden class."""
+        html = """
+        <html>
+            <body>
+                <p>Visible</p>
+                <p class="hidden">Hidden</p>
+            </body>
+        </html>
+        """
+        converter = HtmlConverter(ignore_hidden=True)
+        document = converter.convert(html)
+
+        assert "Visible" in document.content
+
+    def test_ignore_sr_only(self) -> None:
+        """Test ignoring elements with sr-only class."""
+        html = """
+        <html>
+            <body>
+                <p>Visible</p>
+                <span class="sr-only">Screen reader only</span>
+            </body>
+        </html>
+        """
+        converter = HtmlConverter(ignore_hidden=True)
+        document = converter.convert(html)
+
+        assert "Visible" in document.content
+
+
+class TestHtmlConverterScriptAndStyle:
+    """Tests for script and style element handling."""
+
+    def test_ignore_scripts_by_default(self) -> None:
+        """Test ignoring script content by default."""
+        html = """
+        <html>
+            <body>
+                <p>Content</p>
+                <script>console.log('script');</script>
+            </body>
+        </html>
+        """
+        converter = HtmlConverter()
+        document = converter.convert(html)
+
+        assert "console.log" not in document.content
+
+    def test_extract_scripts_when_enabled(self) -> None:
+        """Test extracting script content when enabled."""
+        html = """
+        <html>
+            <body>
+                <p>Content</p>
+                <script>console.log('script');</script>
+            </body>
+        </html>
+        """
+        converter = HtmlConverter(extract_scripts=True)
+        document = converter.convert(html)
+
+        # Script content may or may not appear depending on implementation
+        # The key is it doesn't raise an error
+        assert isinstance(document, Document)
+
+
+class TestHtmlConverterPreprocessing:
+    """Tests for HTML preprocessing."""
+
+    def test_preprocess_normalizes_whitespace(self) -> None:
+        """Test that preprocessing normalizes whitespace."""
+        html = """
+        <html>
+            <body>
+                <p>Content   with    extra     spaces</p>
+            </body>
+        </html>
+        """
+        converter = HtmlConverter()
+        processed = converter.preprocess(html)
+
+        assert "    " not in processed
+
+
+class TestHtmlConverterComplex:
+    """Tests for complex HTML document structures."""
+
+    def test_convert_blog_post(self) -> None:
+        """Test conversion of typical blog post structure."""
+        html = """
+        <html lang="en">
+            <head>
+                <title>My Blog Post</title>
+                <meta name="description" content="A sample blog post">
+            </head>
+            <body>
+                <header>
+                    <h1>My Blog</h1>
+                    <nav>
+                        <a href="/">Home</a>
+                        <a href="/about">About</a>
+                    </nav>
+                </header>
+                <main>
+                    <article>
+                        <h2>Blog Post Title</h2>
+                        <p>First paragraph of the post.</p>
+                        <p>Second paragraph with <code>inline code</code>.</p>
+                        <pre><code>
 def example():
-    return 42
-```
-"""
-        result = converter.parse(content)
-
-        # Find the code block
-        code_blocks = [b for b in result.all_blocks if b.content_type == ContentType.CODE_BLOCK]
-        assert len(code_blocks) == 1
-        assert code_blocks[0].language == "python"
-        assert "def example" in code_blocks[0].content
-
-    def test_parse_list(self, converter: MarkdownConverter) -> None:
-        """Test parsing a list."""
-        content = """# List Example
-
-- Item 1
-- Item 2
-- Item 3
-"""
-        result = converter.parse(content)
-
-        list_blocks = [b for b in result.all_blocks if b.content_type == ContentType.LIST]
-        assert len(list_blocks) >= 1
-
-    def test_parse_blockquote(self, converter: MarkdownConverter) -> None:
-        """Test parsing a blockquote."""
-        content = """> This is a blockquote
-> with multiple lines
-"""
-        result = converter.parse(content)
-
-        blockquotes = [b for b in result.all_blocks if b.content_type == ContentType.BLOCKQUOTE]
-        assert len(blockquotes) >= 1
-
-    def test_parse_link(self, converter: MarkdownConverter) -> None:
-        """Test parsing a link."""
-        content = "[Click here](https://example.com)"
-        result = converter.parse(content)
-
-        links = [b for b in result.all_blocks if b.content_type == ContentType.LINK]
-        assert len(links) >= 1
-        assert links[0].url == "https://example.com"
-
-    def test_parse_image(self, converter: MarkdownConverter) -> None:
-        """Test parsing an image."""
-        content = "![Alt text](image.png)"
-        result = converter.parse(content)
-
-        images = [b for b in result.all_blocks if b.content_type == ContentType.IMAGE]
-        assert len(images) >= 1
-
-    def test_parse_horizontal_rule(self, converter: MarkdownConverter) -> None:
-        """Test parsing a horizontal rule."""
-        content = """---
-
-Some text
----
-"""
-        result = converter.parse(content)
-
-        hr_blocks = [b for b in result.all_blocks if b.content_type == ContentType.HORIZONTAL_RULE]
-        assert len(hr_blocks) >= 1
-
-    def test_semantic_tags_extraction(self, converter: MarkdownConverter) -> None:
-        """Test semantic tags are extracted from content."""
-        content = """# Installation Guide
-
-How to install the package.
-"""
-        result = converter.parse(content)
-
-        # Check that semantic tags are extracted
-        tags_found = False
-        for block in result.all_blocks:
-            if block.semantic_tags:
-                tags_found = True
-                break
-
-        assert tags_found or len(result.all_blocks) > 0
-
-    def test_importance_detection(self, converter: MarkdownConverter) -> None:
-        """Test importance detection for content."""
-        content = """# Important Note
-
-WARNING: This is critical information!
-"""
-        result = converter.parse(content)
-
-        # Check that some blocks have importance set
-        important_blocks = [b for b in result.all_blocks if b.importance != "normal"]
-        # At least the content should have been parsed
-        assert len(result.all_blocks) >= 1
-
-    def test_table_of_contents_generation(self, converter: MarkdownConverter, sample_markdown: str) -> None:
-        """Test that table of contents is generated."""
-        result = converter.convert(sample_markdown)
-
-        assert len(result.table_of_contents) > 0
-        # Verify TOC has the expected structure
-        for entry in result.table_of_contents:
-            assert "id" in entry
-            assert "title" in entry
-            assert "level" in entry
-
-    def test_statistics_generation(self, converter: MarkdownConverter, sample_markdown: str) -> None:
-        """Test that statistics are generated."""
-        result = converter.convert(sample_markdown)
-
-        assert len(result.statistics) > 0
-        assert "total_sections" in result.statistics
-        assert "total_blocks" in result.statistics
-        assert "content_types" in result.statistics
-
-    def test_semantic_summary_generation(self, converter: MarkdownConverter, sample_markdown: str) -> None:
-        """Test that semantic summary is generated."""
-        result = converter.convert(sample_markdown)
-
-        assert result.semantic_summary is not None
-        assert "purpose" in result.semantic_summary
-        assert "main_topics" in result.semantic_summary
-
-    def test_metadata_extraction(self, converter: MarkdownConverter) -> None:
-        """Test metadata extraction from document."""
-        content = """# My Document Title
-
-Some content here.
-"""
-        result = converter.convert(content)
-
-        assert result.metadata.source_format == "markdown"
-        assert result.metadata.title == "My Document Title"
-        assert result.metadata.word_count > 0
-
-    def test_relationships_generation(self, converter: MarkdownConverter) -> None:
-        """Test that relationships are generated between blocks."""
-        content = """# Section
-
-First paragraph.
-
-Second paragraph.
-
-```python
-code
-```
-
-Third paragraph.
-"""
-        result = converter.parse(content)
-
-        # Check that sequential relationships exist
-        has_sequential = False
-        for block in result.all_blocks:
-            for rel in block.relationships:
-                if rel.get("type") == "sequential":
-                    has_sequential = True
-                    break
-
-        assert has_sequential or len(result.all_blocks) >= 1
-
-    def test_section_type_detection(self, converter: MarkdownConverter) -> None:
-        """Test section type detection from headings."""
-        content = """# Installation
-
-Content here.
-
-## API Reference
-
-More content.
-"""
-        result = converter.parse(content)
-
-        # Check section types
-        section_types = [s.section_type for s in result.sections]
-        assert "installation" in section_types or "api_reference" in section_types or len(result.sections) >= 1
-
-    def test_nested_sections(self, converter: MarkdownConverter) -> None:
-        """Test handling of nested sections."""
-        content = """# H1
-## H2
-### H3
-#### H4
-"""
-        result = converter.parse(content)
-
-        assert len(result.sections) >= 1
-        if result.sections:
-            h1_section = result.sections[0]
-            assert h1_section.level == HeadingLevel.H1
-
-    def test_empty_content(self, converter: MarkdownConverter) -> None:
-        """Test handling of empty content."""
-        result = converter.parse("")
-
-        # Should create a default section or handle gracefully
-        assert result.metadata.source_format == "markdown"
-
-    def test_convert_with_file_path(self, converter: MarkdownConverter, tmp_path: pytest.fixture) -> None:
-        """Test converting content via file path."""
-        # This would require a file to exist, so we test the path validation
-        content = "# Test"
-        result = converter.parse(content)
-        assert len(result.sections) >= 1
-
-    def test_code_language_extraction(self, converter: MarkdownConverter) -> None:
-        """Test extraction of code language from fenced blocks."""
-        content = """```javascript
-const x = 1;
-```
-
-```python
-y = 2
-```
-
-```
-some text
-```
-"""
-        result = converter.parse(content)
-
-        languages = [b.language for b in result.all_blocks if b.content_type == ContentType.CODE_BLOCK]
-        assert "javascript" in languages
-        assert "python" in languages
-
-    def test_emphasis_and_strong(self, converter: MarkdownConverter) -> None:
-        """Test parsing of emphasis and strong text."""
-        content = """Some **bold** and *italic* text.
-"""
-        result = converter.parse(content)
-
-        # Content should be parsed (emphasis may be inline)
-        assert len(result.all_blocks) >= 1
-
-    def test_word_count_calculation(self, converter: MarkdownConverter) -> None:
-        """Test that word count is calculated correctly."""
-        content = "One two three four five"
-        result = converter.convert(content)
-
-        assert result.metadata.word_count == 5
-
-    def test_reading_time_calculation(self, converter: MarkdownConverter) -> None:
-        """Test that reading time is calculated."""
-        content = "Word " * 200  # 200 words = ~1 minute at 200 wpm
-        result = converter.convert(content)
-
-        assert result.metadata.reading_time_minutes is not None
-        assert result.metadata.reading_time_minutes > 0
-
-    def test_block_id_uniqueness(self, converter: MarkdownConverter) -> None:
-        """Test that block IDs are unique."""
-        content = """# Title
-
-Content 1.
-
-Content 2.
-
-Content 3.
-"""
-        result = converter.parse(content)
-
-        block_ids = [b.id for b in result.all_blocks]
-        assert len(block_ids) == len(set(block_ids))
-
-    def test_section_id_uniqueness(self, converter: MarkdownConverter) -> None:
-        """Test that section IDs are unique."""
-        content = """# One
-## Two
-### Three
-"""
-        result = converter.parse(content)
-
-        def collect_section_ids(sections: list) -> list:
-            ids = []
-            for s in sections:
-                ids.append(s.id)
-                ids.extend(collect_section_ids(s.child_sections))
-            return ids
-
-        section_ids = collect_section_ids(result.sections)
-        assert len(section_ids) == len(set(section_ids))
-
-
-class TestMarkdownConverterEdgeCases:
-    """Test edge cases for MarkdownConverter."""
-
-    @pytest.fixture
-    def converter(self) -> MarkdownConverter:
-        """Create a converter instance."""
-        return MarkdownConverter()
-
-    def test_malformed_markdown(self, converter: MarkdownConverter) -> None:
-        """Test handling of malformed Markdown."""
-        content = """
-# Heading with no closing
-
-*unclosed emphasis*
-
-[link without closing](
-"""
-        result = converter.parse(content)
-        assert result is not None
-
-    def test_very_long_content(self, converter: MarkdownConverter) -> None:
-        """Test handling of very long content."""
-        content = "# Heading\n" + ("Lorem ipsum dolor sit amet. " * 1000)
-        result = converter.parse(content)
-        assert result is not None
-        assert result.metadata.word_count > 0
-
-    def test_special_characters(self, converter: MarkdownConverter) -> None:
-        """Test handling of special characters."""
-        content = """# Special Characters
-
-Test: <>&"'
-
-Unicode: 你好世界 🌍
-"""
-        result = converter.parse(content)
-        assert result is not None
-
-    def test_only_headings(self, converter: MarkdownConverter) -> None:
-        """Test Markdown with only headings."""
-        content = """# H1
-## H2
-### H3
-"""
-        result = converter.parse(content)
-        assert len(result.sections) >= 1
-
-    def test_only_code(self, converter: MarkdownConverter) -> None:
-        """Test Markdown with only code blocks."""
-        content = """```
-no language
-```
-
-```rust
-fn main() {
-    println!("Hello");
-}
-```
-"""
-        result = converter.parse(content)
-        assert len(result.all_blocks) >= 1
+    return "Hello"
+                        </code></pre>
+                        <h3>Subsection</h3>
+                        <ul>
+                            <li>List item one</li>
+                            <li>List item two</li>
+                        </ul>
+                    </article>
+                </main>
+                <aside>
+                    <h3>Related Posts</h3>
+                    <p>Sidebar content</p>
+                </aside>
+                <footer>
+                    <p>Copyright 2024</p>
+                </footer>
+            </body>
+        </html>
+        """
+        converter = HtmlConverter()
+        document = converter.convert(html)
+
+        # Verify metadata
+        assert document.metadata.title == "My Blog Post"
+        assert document.metadata.description == "A sample blog post"
+        assert document.metadata.language == "en"
+        assert document.metadata.source_type == "html"
+
+        # Verify structure
+        nav_sections = self._find_sections_by_type(document.sections, SectionType.NAVIGATION)
+        assert len(nav_sections) > 0
+
+        article_sections = self._find_sections_by_type(document.sections, SectionType.ARTICLE)
+        assert len(article_sections) > 0
+
+        aside_sections = self._find_sections_by_type(document.sections, SectionType.ASIDE)
+        assert len(aside_sections) > 0
+
+    def test_convert_documentation_page(self) -> None:
+        """Test conversion of typical documentation page."""
+        html = """
+        <html>
+            <head><title>API Reference</title></head>
+            <body>
+                <nav class="sidebar">
+                    <ul>
+                        <li><a href="#intro">Introduction</a></li>
+                        <li><a href="#api">API</a></li>
+                    </ul>
+                </nav>
+                <main>
+                    <section id="intro">
+                        <h1>Introduction</h1>
+                        <p>Welcome to the documentation.</p>
+                        <div class="note">
+                            <p>This is an important note.</p>
+                        </div>
+                    </section>
+                    <section id="api">
+                        <h2>API Reference</h2>
+                        <div class="warning">
+                            <p>Warning: API may change.</p>
+                        </div>
+                        <table>
+                            <tr><th>Method</th><th>Description</th></tr>
+                            <tr><td>GET</td><td>Retrieve data</td></tr>
+                        </table>
+                    </section>
+                </main>
+            </body>
+        </html>
+        """
+        converter = HtmlConverter()
+        document = converter.convert(html)
+
+        assert document.metadata.title == "API Reference"
+        assert document.metadata.source_type == "html"
+
+        # Check semantic structure
+        nav_sections = self._find_sections_by_type(document.sections, SectionType.NAVIGATION)
+        assert len(nav_sections) > 0
+
+        # Check note and warning classifications
+        note_sections = [s for s in document.sections
+                         if s.classification == ContentClassification.NOTE]
+        warning_sections = [s for s in document.sections
+                           if s.classification == ContentClassification.WARNING]
+        assert len(note_sections) > 0
+        assert len(warning_sections) > 0
+
+
+# Helper functions
+
+def _find_sections_by_type(sections: list[Section], section_type: SectionType) -> list[Section]:
+    """Recursively find all sections of a given type."""
+    result = []
+    for section in sections:
+        if section.section_type == section_type:
+            result.append(section)
+        result.extend(_find_sections_by_type(section.children, section_type))
+    return result

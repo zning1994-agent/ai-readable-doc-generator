@@ -1,38 +1,56 @@
-"""Output schema definitions for structured document output."""
+"""Schema definitions for structured output."""
 
+from dataclasses import dataclass, field
 from enum import Enum
+from typing import Any
 
-from pydantic import BaseModel, Field
 
+class OutputSchema(Enum):
+    """Supported output schema formats."""
 
-class SchemaType(str, Enum):
-    """Supported output schema types."""
-
-    STANDARD = "standard"
+    JSON = "json"
+    YAML = "yaml"
     MCP = "mcp"
-    MINIMAL = "minimal"
-    DETAILED = "detailed"
 
 
-class OutputSchema(BaseModel):
-    """Configuration for output schema formatting."""
+class MCPSchemaType(Enum):
+    """MCP (Model Context Protocol) schema types."""
 
-    schema_type: SchemaType = Field(default=SchemaType.STANDARD)
+    TEXT = "text"
+    CODE = "code"
+    RESOURCE = "resource"
+    PROMPT = "prompt"
+
+
+@dataclass
+class MCPSchema:
+    """Schema for MCP-compatible output."""
+
+    schema_type: MCPSchemaType
+    content: str
+    uri: str | None = None
+    mime_type: str | None = None
+    annotations: dict[str, Any] | None = None
+
+
+@dataclass
+class SchemaConfig:
+    """Configuration for output schema."""
+
+    schema: OutputSchema = OutputSchema.JSON
+    include_raw: bool = False
     include_metadata: bool = True
-    include_raw_content: bool = False
+    include_structure: bool = True
+    pretty_print: bool = True
     indent: int = 2
-    semantic_tags: bool = True
-    include_importance: bool = True
-    include_relationships: bool = True
 
-    def model_dump(self, **kwargs) -> dict:
-        """Dump schema as dictionary."""
+    def to_dict(self) -> dict[str, Any]:
+        """Convert config to dictionary."""
         return {
-            "schema_type": self.schema_type.value,
+            "schema": self.schema.value,
+            "include_raw": self.include_raw,
             "include_metadata": self.include_metadata,
-            "include_raw_content": self.include_raw_content,
+            "include_structure": self.include_structure,
+            "pretty_print": self.pretty_print,
             "indent": self.indent,
-            "semantic_tags": self.semantic_tags,
-            "include_importance": self.include_importance,
-            "include_relationships": self.include_relationships,
         }
