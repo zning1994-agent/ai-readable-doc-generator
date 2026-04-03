@@ -1,1 +1,1 @@
-"""Test suite for ai-readable-doc-generator."""
+"""Tests package for AI-Readable Document Generator."""

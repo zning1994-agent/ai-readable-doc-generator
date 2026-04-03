@@ -1,15 +1,14 @@
 """
-AI-Readable Document Generator.
+Parser plugins for AI-Readable Document Generator.
 
-A tool for transforming documentation into AI-Agent-friendly formats through
-structured output generation and semantic tagging.
+This package contains plugin modules for extending document parsing capabilities.
 """
-
-__version__ = "0.1.0"
 
 from ai_readable_doc_generator.parser.plugins.semantic_tagger import (
     ContentType,
     ImportanceLevel,
+    SectionRelationship,
+    SemanticTag,
     SemanticTaggerPlugin,
     TaggedContent,
 )
@@ -17,7 +16,8 @@ from ai_readable_doc_generator.parser.plugins.semantic_tagger import (
 __all__ = [
     "ContentType",
     "ImportanceLevel",
+    "SectionRelationship",
+    "SemanticTag",
     "SemanticTaggerPlugin",
     "TaggedContent",
-    "__version__",
 ]
